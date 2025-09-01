@@ -1,0 +1,21 @@
+gift_total=10.64
+candidate_product_titles=4
+  - TKTK Chin Pimple Patches (100 Count 6 Sizes), XL Contoured Hydrocolloid Chin Patch 62x42 mm, Large Acne Patch for Face Blemishes Zit Breakouts, Maximum Absorption Overnight Stickers
+  - Garnier Micellar Cleansing Water, All-in-1 Makeup Remover and Facial Cleanser, For All Skin Types, 3.4 Fl Oz (100mL), 1 Count (Packaging May Vary)
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=11
+  $ $11.98
+  $ $0.00
+  $ $2.00
+  $ $9.98
+  $ $0.66
+  $ $10.64
+  $ $0.00
+  $ $7.99
+  $ $7.99
+  $ $3.99
+  $ $3.99
+paired_items=2
+  * TKTK Chin Pimple Patches (100 Count 6 Sizes), XL Contoured Hydrocolloid Chin Patch 62x42 mm, Large Acne Patch for Face Blemishes Zit Breakouts, Maximum Absorption Overnight Stickers -> 7.99
+  * Garnier Micellar Cleansing Water, All-in-1 Makeup Remover and Facial Cleanser, For All Skin Types, 3.4 Fl Oz (100mL), 1 Count (Packaging May Vary) -> 3.99

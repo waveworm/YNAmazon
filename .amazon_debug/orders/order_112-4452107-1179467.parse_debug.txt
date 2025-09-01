@@ -1,0 +1,20 @@
+gift_total=279.69
+candidate_product_titles=3
+  - Alpine Corporation PAL8000 8000 GPH Submersible Pump for Ponds, Fountains, Waterfalls &amp; Outdoor Features, 540W Quiet Heavy-Duty Motor with 33 Ft Cord, 26 Ft Lift, Multi-Angle Flow, Blue
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=12
+  $ $262.31
+  $ $0.00
+  $ $262.31
+  $ $17.38
+  $ $279.69
+  $ $0.00
+  $ $262.31
+  $ $17.38
+  $ $279.69
+  $ $279.69
+  $ $262.31
+  $ $262.31
+paired_items=1
+  * Alpine Corporation PAL8000 8000 GPH Submersible Pump for Ponds, Fountains, Waterfalls & Outdoor Features, 540W Quiet Heavy-Duty Motor with 33 Ft Cord, 26 Ft Lift, Multi-Angle Flow, Blue -> 262.31

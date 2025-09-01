@@ -1,0 +1,17 @@
+gift_total=36.02
+candidate_product_titles=3
+  - BOSCH BE1521H Blue Ceramic Disc Brake Pad Set With Hardware - Compatible With Select Honda Crosstour, CR-V, Odyssey; Subaru Legacy; FRONT
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=9
+  $ $33.78
+  $ $2.99
+  $ $2.99
+  $ $33.78
+  $ $2.24
+  $ $36.02
+  $ $0.00
+  $ $33.78
+  $ $33.78
+paired_items=1
+  * BOSCH BE1521H Blue Ceramic Disc Brake Pad Set With Hardware - Compatible With Select Honda Crosstour, CR-V, Odyssey; Subaru Legacy; FRONT -> 33.78

@@ -1,0 +1,16 @@
+gift_total=14.99
+candidate_product_titles=3
+  - City Threads 100% Cotton Athletic Shorts for Boys Sports Camps School Running Basketball Perfect for Sensitive Skin or SPD Clothing, Black, 3T
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $14.99
+  $ $0.00
+  $ $14.99
+  $ $0.00
+  $ $14.99
+  $ $0.00
+  $ $14.99
+  $ $14.99
+paired_items=1
+  * City Threads 100% Cotton Athletic Shorts for Boys Sports Camps School Running Basketball Perfect for Sensitive Skin or SPD Clothing, Black, 3T -> 14.99

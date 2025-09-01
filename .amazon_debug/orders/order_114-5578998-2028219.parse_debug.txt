@@ -1,0 +1,16 @@
+gift_total=62.99
+candidate_product_titles=3
+  - IUV Cowboy Boots For Women Western Cowgirl Boots with Chunky Heel Mid Calf Snip Toe Ideal for low insteps
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $62.99
+  $ $0.00
+  $ $62.99
+  $ $0.00
+  $ $62.99
+  $ $0.00
+  $ $62.99
+  $ $62.99
+paired_items=1
+  * IUV Cowboy Boots For Women Western Cowgirl Boots with Chunky Heel Mid Calf Snip Toe Ideal for low insteps -> 62.99

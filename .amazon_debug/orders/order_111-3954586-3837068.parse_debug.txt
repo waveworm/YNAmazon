@@ -1,0 +1,16 @@
+gift_total=19.99
+candidate_product_titles=3
+  - Luzlen Girls Princess Costume Pink Dress Up Outfit for Halloween Cosplay Carnival Party, 7-8 Years(Label 150)
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $19.99
+  $ $0.00
+  $ $19.99
+  $ $0.00
+  $ $19.99
+  $ $0.00
+  $ $19.99
+  $ $19.99
+paired_items=1
+  * Luzlen Girls Princess Costume Pink Dress Up Outfit for Halloween Cosplay Carnival Party, 7-8 Years(Label 150) -> 19.99

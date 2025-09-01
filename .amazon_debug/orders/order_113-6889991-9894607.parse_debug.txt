@@ -1,0 +1,51 @@
+gift_total=0.00
+candidate_product_titles=12
+  - 365 by Whole Foods Market Organic Blue Corn Tortilla Chips, 12 OZ
+  - 365 by Whole Foods Market, Organic Ranch Dressing, 16 Fl Oz
+  - Genji Sushi Cucumber Avocado Roll, 6.63 OZ
+  - PRODUCE Slicing Cucumbers
+  - ECOS Free &amp; Clear Dish Soap, 25 FZ
+  - Genji Sushi Brown Rice Spicy Salmon Avocado Roll, 7.13 OZ
+  - Genji Sushi Spicy Shrimp Roll, 8.64 OZ
+  - NATURALLY BEAUTIFUL Pl Hb 10In, 1 EA
+  - BDK Tropical Plants Bin 10in, 1 EA
+  - PINELAND FARMS NATURAL MEATS 80/20 Ground Beef Patty, 12 OZ
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=25
+  $ $87.10
+  $ $0.00
+  $ $87.10
+  $ $0.00
+  $ $87.10
+  $ $3.29
+  $ $3.29
+  $ $3.49
+  $ $3.49
+  $ $8.49
+  $ $8.49
+  $ $0.89
+  $ $0.89
+  $ $3.99
+  $ $3.99
+  $ $10.99
+  $ $10.99
+  $ $9.99
+  $ $9.99
+  $ $14.99
+  $ $14.99
+  $ $24.99
+  $ $24.99
+  $ $5.99
+  $ $5.99
+paired_items=10
+  * 365 by Whole Foods Market Organic Blue Corn Tortilla Chips, 12 OZ -> 3.29
+  * 365 by Whole Foods Market, Organic Ranch Dressing, 16 Fl Oz -> 3.49
+  * BDK Tropical Plants Bin 10in, 1 EA -> 24.99
+  * ECOS Free & Clear Dish Soap, 25 FZ -> 3.99
+  * Genji Sushi Brown Rice Spicy Salmon Avocado Roll, 7.13 OZ -> 10.99
+  * Genji Sushi Cucumber Avocado Roll, 6.63 OZ -> 8.49
+  * Genji Sushi Spicy Shrimp Roll, 8.64 OZ -> 9.99
+  * NATURALLY BEAUTIFUL Pl Hb 10In, 1 EA -> 14.99
+  * PINELAND FARMS NATURAL MEATS 80/20 Ground Beef Patty, 12 OZ -> 5.99
+  * PRODUCE Slicing Cucumbers -> 0.89

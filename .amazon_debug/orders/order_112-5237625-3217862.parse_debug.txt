@@ -1,0 +1,25 @@
+gift_total=32.84
+candidate_product_titles=5
+  - Air Tags-4 Pack Apple Kids Hidden Case, Airtag Tracker for Kid, AirTag Hidden Kids Holder with Invisible Pin, Anti Lost, for Children, Elderly, Luggage, Clothing (Black White Pink Purple)
+  - Air Tag Holder for AirTag Case Keychain,Silicone for AirTags Keychain Ring Cases Cover Tags for Apple GPS Tracker Item Tag Finders for AirTag Accessories Air Tags-4 Pack for Airtag Holder for Kids
+  - Pool Skimmer Net- Total Length 72 inches Rake with Pole,Accessories for Cleaning Inground/Above Ground Swimming Pool, Pond,Spa and Hot Tub Leaf Debris
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=13
+  $ $30.79
+  $ $2.99
+  $ $2.99
+  $ $30.79
+  $ $2.05
+  $ $32.84
+  $ $0.00
+  $ $10.81
+  $ $10.81
+  $ $5.99
+  $ $5.99
+  $ $13.99
+  $ $13.99
+paired_items=3
+  * Pool Skimmer Net- Total Length 72 inches Rake with Pole,Accessories for Cleaning Inground/Above Ground Swimming Pool, Pond,Spa and Hot Tub Leaf Debris -> 13.99
+  * Air Tag Holder for AirTag Case Keychain,Silicone for AirTags Keychain Ring Cases Cover Tags for Apple GPS Tracker Item Tag Finders for AirTag Accessories Air Tags-4 Pack for Airtag Holder for Kids -> 5.99
+  * Air Tags-4 Pack Apple Kids Hidden Case, Airtag Tracker for Kid, AirTag Hidden Kids Holder with Invisible Pin, Anti Lost, for Children, Elderly, Luggage, Clothing (Black White Pink Purple) -> 10.81

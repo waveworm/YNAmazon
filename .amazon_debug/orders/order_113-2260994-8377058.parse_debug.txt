@@ -1,0 +1,21 @@
+gift_total=30.31
+candidate_product_titles=4
+  - USA States Stickers for Kids Teens Adults, 50PCS Adventure Travel Funimost Vinyl Waterproof Stickers Pack for Water Bottle Laptop Luggage Scrapbook, Cities Landscape Decals (States)
+  - ODOLY Unisex Cork Footbed Slide Sandal, Arch Support Summer Outdoor Sandals with Adjustable Buckle for Women and Men, Brown 38 (7.5 Women/6 Men)
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=11
+  $ $29.98
+  $ $2.99
+  $ $2.99
+  $ $29.98
+  $ $0.33
+  $ $30.31
+  $ $0.00
+  $ $4.99
+  $ $4.99
+  $ $24.99
+  $ $24.99
+paired_items=2
+  * ODOLY Unisex Cork Footbed Slide Sandal, Arch Support Summer Outdoor Sandals with Adjustable Buckle for Women and Men, Brown 38 (7.5 Women/6 Men) -> 24.99
+  * USA States Stickers for Kids Teens Adults, 50PCS Adventure Travel Funimost Vinyl Waterproof Stickers Pack for Water Bottle Laptop Luggage Scrapbook, Cities Landscape Decals (States) -> 4.99

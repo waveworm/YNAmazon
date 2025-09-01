@@ -1,0 +1,16 @@
+gift_total=155.09
+candidate_product_titles=3
+  - VIVOSUN 9000 GPH Submersible Water Pump 620W Pond Pump Ultra Quiet Aquarium Pump with 26.5FT. Lift Height for Pond Waterfall, Fish Tank, Statuary, or Hydroponics
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $145.45
+  $ $0.00
+  $ $145.45
+  $ $9.64
+  $ $155.09
+  $ $0.00
+  $ $145.45
+  $ $145.45
+paired_items=1
+  * VIVOSUN 9000 GPH Submersible Water Pump 620W Pond Pump Ultra Quiet Aquarium Pump with 26.5FT. Lift Height for Pond Waterfall, Fish Tank, Statuary, or Hydroponics -> 145.45

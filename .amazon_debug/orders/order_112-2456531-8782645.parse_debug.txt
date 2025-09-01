@@ -1,0 +1,16 @@
+gift_total=12.04
+candidate_product_titles=3
+  - 1InTheOffice Spiral Index Cards 3x5 Ruled, Neon Note Cards Spiral Bound, Spiral Bound Index Cards, 50 Cards/Pack, 2 Pack
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $11.29
+  $ $0.00
+  $ $11.29
+  $ $0.75
+  $ $12.04
+  $ $0.00
+  $ $11.29
+  $ $11.29
+paired_items=1
+  * 1InTheOffice Spiral Index Cards 3x5 Ruled, Neon Note Cards Spiral Bound, Spiral Bound Index Cards, 50 Cards/Pack, 2 Pack -> 11.29

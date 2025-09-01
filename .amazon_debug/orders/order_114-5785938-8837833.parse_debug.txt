@@ -1,0 +1,17 @@
+gift_total=21.84
+candidate_product_titles=3
+  - L. Ultra Thin Pads for Women, Overnight Absorbency, Organic Cotton Top Layer, Unscented Pads with Wings, 96 Count (4 Packs of 24)
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=9
+  $ $22.99
+  $ $0.00
+  $ $1.15
+  $ $21.84
+  $ $0.00
+  $ $21.84
+  $ $0.00
+  $ $22.99
+  $ $22.99
+paired_items=1
+  * L. Ultra Thin Pads for Women, Overnight Absorbency, Organic Cotton Top Layer, Unscented Pads with Wings, 96 Count (4 Packs of 24) -> 22.99

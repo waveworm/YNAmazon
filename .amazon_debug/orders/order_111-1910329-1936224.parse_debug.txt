@@ -1,0 +1,21 @@
+gift_total=23.55
+candidate_product_titles=4
+  - Old Spice Aluminum Free Deodorant For Men, High Endurance, 24/7 Sweat Defense &amp; Odor Protection, 24/7 Freshness &amp; Lasting Scent, Refresh Scent, 3.0 oz (Pack of 3)
+  - Planner 2025-2026 - Academic Planner 2025-2026 Daily Weekly and Monthly, July 2025 - June 2026, 8.5&quot; x 11&quot;, Colorful Tabs, Back Pocket, Perfect Daily Organizer - Floral
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=11
+  $ $30.08
+  $ $0.00
+  $ $7.99
+  $ $22.09
+  $ $1.46
+  $ $23.55
+  $ $0.00
+  $ $14.10
+  $ $14.10
+  $ $7.99
+  $ $7.99
+paired_items=2
+  * Old Spice Aluminum Free Deodorant For Men, High Endurance, 24/7 Sweat Defense & Odor Protection, 24/7 Freshness & Lasting Scent, Refresh Scent, 3.0 oz (Pack of 3) -> 14.1
+  * Planner 2025-2026 - Academic Planner 2025-2026 Daily Weekly and Monthly, July 2025 - June 2026, 8.5" x 11", Colorful Tabs, Back Pocket, Perfect Daily Organizer - Floral -> 7.99

@@ -1,0 +1,18 @@
+gift_total=18.81
+candidate_product_titles=3
+  - L. Ultra Thin Liners for Women, Regular Coverage, Organic Cotton Top Layer, Unscented Pantiliners, 336 Count (3 Packs of 112)
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=10
+  $ $28.94
+  $ $0.00
+  $ $5.79
+  $ $4.34
+  $ $18.81
+  $ $0.00
+  $ $18.81
+  $ $0.00
+  $ $28.94
+  $ $28.94
+paired_items=1
+  * L. Ultra Thin Liners for Women, Regular Coverage, Organic Cotton Top Layer, Unscented Pantiliners, 336 Count (3 Packs of 112) -> 28.94

@@ -1,0 +1,15 @@
+gift_total=56.50
+candidate_product_titles=2
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $52.99
+  $ $0.00
+  $ $52.99
+  $ $3.51
+  $ $56.50
+  $ $0.00
+  $ $52.99
+  $ $52.99
+paired_items=1
+  * Airmax Pond Dye Plus, Twilight Blue Colorant & Natural Beneficial Bacteria, Large Pond & Lake Water Clarifier & Color Treatment, Shade Plants & Algae from Sunlight, Fish & Livestock Safe, 1 Gallon -> 52.99

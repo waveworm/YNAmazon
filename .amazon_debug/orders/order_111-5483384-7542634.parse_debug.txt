@@ -1,0 +1,15 @@
+gift_total=38.37
+candidate_product_titles=2
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $35.99
+  $ $0.00
+  $ $35.99
+  $ $2.38
+  $ $38.37
+  $ $0.00
+  $ $35.99
+  $ $35.99
+paired_items=1
+  * Hurricane Classic Oscillating Wall Mount Fan w/ 3 Quite Speeds, White, 16" - Corded Electric Air Cooling Unit w/Easy Pull Cord Controls for Home, Grow Tents, Offices, Sheds, Studios, Garages & Dorms -> 35.99

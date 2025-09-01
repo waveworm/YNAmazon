@@ -1,0 +1,16 @@
+gift_total=67.17
+candidate_product_titles=3
+  - GCI OUTDOOR Kickback Rocker Outdoor Rocking Chair with Beverage Holder
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $63.00
+  $ $0.00
+  $ $63.00
+  $ $4.17
+  $ $67.17
+  $ $0.00
+  $ $63.00
+  $ $63.00
+paired_items=1
+  * GCI OUTDOOR Kickback Rocker Outdoor Rocking Chair with Beverage Holder -> 63.0
