@@ -32,10 +32,10 @@ raw_price_tokens=21
   $ $2.00
   $ $2.00
 paired_items=7
+  * FUNAN Hair Feel Finishing Stick for Small Broken Hair, Stick, Gel Wax Women Naturally Refreshing -> 4.99
+  * e.l.f. Cream Glide Lip Liner, Highly-Pigmented Pencil For Shaping & Sculpting Lips, Semi-Matte Finish, Vegan & Cruelty-Free, Cinnamatic -> 2.0
   * About Face Fuzz-Free Facial Razors - 3 Beauty Groomers for Hair Removal, Ideal for Shaving, Exfoliating, Dermaplaning and Brow Shaping, Japanese Steel Gently Removes Facial Hair -> 2.99
   * COVERGIRL Clean Fresh Yummy Lip Gloss, Sheer, Natural Scents, Vegan Formula - Havana Good Time -> 7.18
   * e.l.f. Camo Liquid Blush, Long-lasting Liquid Blush For High-pigment Color, Creates A Soft, Dewy Finish, Vegan & Cruelty-free, Cheeky Lychee -> 7.0
   * e.l.f. Hydrating Camo Concealer, Covers Blemishes & Under-Eye Circles, Full-Coverage & Delivers A Satin Finish, Vegan & Cruelty-Free, Light Ivory -> 7.0
   * e.l.f. Power Grip Dewy Setting Spray, Ultra Fine Mist Made With Hyaluronic Acid, Grips Makeup For A Hydrated, Dewy Finish, Vegan & Cruelty-Free -> 10.0
-  * FUNAN Hair Feel Finishing Stick for Small Broken Hair, Stick, Gel Wax Women Naturally Refreshing -> 4.99
-  * e.l.f. Cream Glide Lip Liner, Highly-Pigmented Pencil For Shaping & Sculpting Lips, Semi-Matte Finish, Vegan & Cruelty-Free, Cinnamatic -> 2.0

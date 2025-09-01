@@ -705,7 +705,8 @@ def _dump_parse_debug(out_path: Path, html: str, gift_total: Decimal, items: Lis
         print(f"[parse-debug] Failed to write debug: {e}")
 
 
-def load_orders_from_gc_playwright(lookback_days: int) -> List[dict]:
+def load_orders_from_gc_playwright(lookback_days: int,
+                                   skip_import_ids: Optional[set[str]] = None) -> List[dict]:
     """Interactive GC loader using Playwright.
 
     Signs in (optionally using TOTP), saves GC activity and per‑order details HTML, and
@@ -778,6 +779,18 @@ def load_orders_from_gc_playwright(lookback_days: int) -> List[dict]:
             print("[gc-pw] No order IDs found on GC page.")
             browser.close()
             return []
+        # Filter out already-posted import_ids unless updating
+        upd = os.getenv("YNAB_UPDATE_EXISTING", "").lower() in ("1","true","yes")
+        tag = (os.getenv("YNAB_IMPORT_ID_TAG") or "").strip().strip('"').strip("'")
+        if skip_import_ids and not upd:
+            filtered: List[str] = []
+            for oid in ids:
+                imp = f"YNAMAZON:{oid}" + (f":{tag}" if tag else "")
+                if imp in skip_import_ids:
+                    print(f"[gc-pw] Skipping already-posted import_id for {oid} ({imp})")
+                    continue
+                filtered.append(oid)
+            ids = filtered
         print(f"[gc-pw] Found {len(ids)} order IDs on GC page.")
         # Fetch each order details page and save
         base = "https://www.amazon.com/gp/your-account/order-details?orderID="
@@ -921,7 +934,8 @@ def gc_fetch_order_details(session: AmazonSession, order_ids: List[str], dump_di
 
 def load_orders_from_gc_activity(lookback_days: int,
                                 history_pages: Optional[int] = None,
-                                history_page_size: Optional[int] = None) -> List[dict]:
+                                history_page_size: Optional[int] = None,
+                                skip_import_ids: Optional[set[str]] = None) -> List[dict]:
     """Primary GC Activity loader.
 
     - Logs in via AmazonSession and visits GC pages to collect order IDs.
@@ -960,6 +974,19 @@ def load_orders_from_gc_activity(lookback_days: int,
             if oid not in seen:
                 ids.append(oid)
                 seen.add(oid)
+    # Filter by existing import_ids unless updating
+    upd = os.getenv("YNAB_UPDATE_EXISTING", "").lower() in ("1","true","yes")
+    tag = (os.getenv("YNAB_IMPORT_ID_TAG") or "").strip().strip('"').strip("'")
+    if skip_import_ids and not upd:
+        filtered: List[str] = []
+        for oid in ids:
+            imp = f"YNAMAZON:{oid}" + (f":{tag}" if tag else "")
+            if imp in skip_import_ids:
+                print(f"[gc] Skipping already-posted import_id for {oid} ({imp})")
+                continue
+            filtered.append(oid)
+        ids = filtered
+
     if not ids:
         print("[gc] No order IDs found on GC pages.")
         return []
@@ -1560,6 +1587,14 @@ def main():
         ynab_create_dummy_transaction(budget_id, account_id)
         return
 
+    # Build a budget-wide skip set of existing import_ids for loader filtering
+    try:
+        _since = (dt.date.today() - dt.timedelta(days=lookback_days)).isoformat()
+        _existing_map_for_skip = ynab_get_existing_by_import_id(budget_id, account_id, _since)
+        _skip_import_ids: set[str] = set(_existing_map_for_skip.keys())
+    except Exception:
+        _skip_import_ids = set()
+
     # Load recent Amazon orders
     orders: List[dict] = []
     if csv_path:
@@ -1569,9 +1604,9 @@ def main():
         except Exception as e:
             print(f"CSV load failed ({e}); falling back to other sources.")
     if not orders and use_gc_activity_pw:
-        orders = load_orders_from_gc_playwright(lookback_days)
+        orders = load_orders_from_gc_playwright(lookback_days, skip_import_ids=_skip_import_ids)
     if not orders and use_gc_activity:
-        orders = load_orders_from_gc_activity(lookback_days, history_pages=_history_pages, history_page_size=_history_page_size)
+        orders = load_orders_from_gc_activity(lookback_days, history_pages=_history_pages, history_page_size=_history_page_size, skip_import_ids=_skip_import_ids)
     if not orders and force_tx_only:
         orders = load_amazon_transactions_only(lookback_days)
         print(f"[source] Amazon Transactions API only → {len(orders)} entries")

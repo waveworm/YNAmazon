@@ -179,3 +179,7 @@ cython_debug/
 .pypirc
 
 *.env_*
+.amazon_debug/orders/order_112-8301764-3120202.parse_debug.txt
+.amazon_debug/orders/order_113-0078783-9977031.html
+.amazon_debug/orders/order_113-0078783-9977031.parse_debug.txt
+.amazon_debug/orders/order_112-8301764-3120202.parse_debug.txt
