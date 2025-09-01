@@ -1213,6 +1213,7 @@ def build_split_for_order(order: dict,
     grand_total = Decimal("0.00")
     line_memos = []
 
+    order_id_for_memo = order.get("order_id", "")
     for shipment in order.get("shipments", []):
         for item in shipment.get("items", []):
             title = str(item.get("title", "")).strip() or "Item"
@@ -1236,6 +1237,7 @@ def build_split_for_order(order: dict,
                     orig_unit_price = Decimal(str(item.get("orig_unit_price")))
             except Exception:
                 orig_unit_price = None
+            # Memo: item name first, then pricing, then order id at the end
             memo_parts = [f"{title} x{int(qty)} @ {unit_price}"]
             # Always include the originally extracted per-item price if we have it,
             # so you can see the receipt price even when normalization re-scales.
@@ -1244,6 +1246,8 @@ def build_split_for_order(order: dict,
                     memo_parts.append(f"(orig {orig_unit_price.quantize(Decimal('0.01'))})")
                 except Exception:
                     memo_parts.append(f"(orig {item.get('orig_unit_price')})")
+            if order_id_for_memo:
+                memo_parts.append(f"| Amazon Order {order_id_for_memo}")
             subs.append({
                 "amount": to_milliunits(line_total) * -1,  # outflow is negative in YNAB
                 "category_id": cat_id,
@@ -1252,9 +1256,12 @@ def build_split_for_order(order: dict,
             line_memos.append(f"{title} (${line_total})")
 
     total_milli = to_milliunits(grand_total) * -1
-    parent_memo = f"Amazon Order {order['order_id']} | " + "; ".join(line_memos[:8])
+    # Parent memo: item names first, order id at the end
+    parent_memo = "; ".join(line_memos[:8])
     if len(line_memos) > 8:
         parent_memo += f"; +{len(line_memos)-8} more..."
+    if order_id_for_memo:
+        parent_memo = (parent_memo + f" | Amazon Order {order_id_for_memo}").strip()
     parent_memo = _truncate_memo(parent_memo, 500)
     return total_milli, subs, parent_memo
 
