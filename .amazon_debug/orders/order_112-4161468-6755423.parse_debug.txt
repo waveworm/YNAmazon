@@ -1,0 +1,16 @@
+gift_total=8.48
+candidate_product_titles=3
+  - Original Wizard Card Game
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=8
+  $ $8.00
+  $ $0.00
+  $ $8.00
+  $ $0.48
+  $ $8.48
+  $ $0.00
+  $ $8.00
+  $ $8.00
+paired_items=1
+  * Original Wizard Card Game -> 8.0

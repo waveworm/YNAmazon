@@ -1,0 +1,20 @@
+gift_total=23.42
+candidate_product_titles=4
+  - Garnier Fructis Sleek &amp; Shine Shampoo (22 Fl Oz) + Conditioner (21 Fl Oz) Set for Frizzy, Dry Hair, Plant Keratin + Argan Oil (2 Items), 1 Kit (Packaging May Vary)
+  - Yoget 4 Pack Shower Loofah Sponge, 60G Bath Sponge,Exfoliate, Cleanse, Soothe Skin
+  - Amazon Secured Card
+  - Amazon Business Card
+raw_price_tokens=10
+  $ $21.97
+  $ $0.00
+  $ $21.97
+  $ $1.45
+  $ $23.42
+  $ $0.00
+  $ $16.98
+  $ $16.98
+  $ $4.99
+  $ $4.99
+paired_items=2
+  * Garnier Fructis Sleek & Shine Shampoo (22 Fl Oz) + Conditioner (21 Fl Oz) Set for Frizzy, Dry Hair, Plant Keratin + Argan Oil (2 Items), 1 Kit (Packaging May Vary) -> 16.98
+  * Yoget 4 Pack Shower Loofah Sponge, 60G Bath Sponge,Exfoliate, Cleanse, Soothe Skin -> 4.99
