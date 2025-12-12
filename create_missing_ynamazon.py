@@ -1641,8 +1641,14 @@ def main():
     # Build a set of import_ids already present (to be idempotent when not updating)
     # We'll fetch recent account transactions in the same lookback window.
     since_date = (dt.date.today() - dt.timedelta(days=lookback_days)).isoformat()
+    # IMPORTANT: Use budget-wide existing lookup, not account-scoped.
+    # We may post transactions to a different account (e.g., YNAB_GIFT_CARD_ACCOUNT_ID),
+    # and account-scoped lookup would miss those and re-create duplicates.
     # Removed try/except ApiException block
-    existing_import_ids = ynab_get_existing_import_ids(budget_id, account_id, since_date)
+    try:
+        existing_import_ids = set(_existing_map_for_skip.keys())
+    except Exception:
+        existing_import_ids = ynab_get_existing_import_ids(budget_id, account_id, since_date)
 
     to_create = []
 

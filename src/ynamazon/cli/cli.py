@@ -1,5 +1,8 @@
 # ruff: noqa: D212, D415
 from typing import Annotated
+import sys
+from contextlib import contextmanager
+import importlib
 
 from loguru import logger
 from rich import print as rprint
@@ -7,17 +10,21 @@ from rich.console import Console
 from rich.table import Table
 from typer import Argument, Context, Option, Typer
 from typer import run as typer_run
-from ynab.configuration import Configuration
-
-from ynamazon.amazon_transactions import AmazonConfig, get_amazon_transactions
-from ynamazon.main import process_transactions
-from ynamazon.settings import settings
-from ynamazon.ynab_transactions import get_ynab_transactions
 
 from . import utils
 
 cli = Typer(rich_markup_mode="rich")
 cli.add_typer(utils.app, name="utils", help="[bold cyan]Utility commands[/]")
+
+
+@contextmanager
+def _patched_argv(argv: list[str]):
+    prev = sys.argv
+    sys.argv = argv
+    try:
+        yield
+    finally:
+        sys.argv = prev
 
 
 @cli.command("print-ynab")
@@ -26,14 +33,18 @@ def print_ynab_transactions(
         str | None,
         Argument(
             help="YNAB API key",
-            default_factory=lambda: settings.ynab_api_key.get_secret_value(),
+            default_factory=lambda: __import__(
+                "ynamazon.settings", fromlist=["settings"]
+            ).settings.ynab_api_key.get_secret_value(),
         ),
     ],
     budget_id: Annotated[
         str | None,
         Argument(
             help="YNAB Budget ID",
-            default_factory=lambda: settings.ynab_budget_id.get_secret_value(),
+            default_factory=lambda: __import__(
+                "ynamazon.settings", fromlist=["settings"]
+            ).settings.ynab_budget_id.get_secret_value(),
         ),
     ],
 ) -> None:
@@ -43,6 +54,9 @@ def print_ynab_transactions(
     [yellow i]All arguments will use defaults in .env file if not provided.[/]
     """
     console = Console()
+
+    from ynab.configuration import Configuration
+    from ynamazon.ynab_transactions import get_ynab_transactions
 
     configuration = Configuration(access_token=api_key)
     transactions, _payee = get_ynab_transactions(configuration=configuration, budget_id=budget_id)
@@ -72,13 +86,20 @@ def print_ynab_transactions(
 def print_amazon_transactions(
     user_email: Annotated[
         str,
-        Argument(help="Amazon username", default_factory=lambda: settings.amazon_user),
+        Argument(
+            help="Amazon username",
+            default_factory=lambda: __import__(
+                "ynamazon.settings", fromlist=["settings"]
+            ).settings.amazon_user,
+        ),
     ],
     user_password: Annotated[
         str,
         Argument(
             help="Amazon password",
-            default_factory=lambda: settings.amazon_password.get_secret_value(),
+            default_factory=lambda: __import__(
+                "ynamazon.settings", fromlist=["settings"]
+            ).settings.amazon_password.get_secret_value(),
         ),
     ],
     order_years: Annotated[
@@ -95,6 +116,8 @@ def print_amazon_transactions(
     [yellow i]All required arguments will use defaults in .env file if not provided.[/]
     """
     console = Console()
+
+    from ynamazon.amazon_transactions import AmazonConfig, get_amazon_transactions
 
     config = AmazonConfig(username=user_email, password=user_password)  # pyright: ignore[reportArgumentType]
 
@@ -137,28 +160,36 @@ def ynamazon(
         str | None,
         Argument(
             help="YNAB API key",
-            default_factory=lambda: settings.ynab_api_key.get_secret_value(),
+            default_factory=lambda: __import__(
+                "ynamazon.settings", fromlist=["settings"]
+            ).settings.ynab_api_key.get_secret_value(),
         ),
     ],
     ynab_budget_id: Annotated[
         str | None,
         Argument(
             help="YNAB Budget ID",
-            default_factory=lambda: settings.ynab_budget_id.get_secret_value(),
+            default_factory=lambda: __import__(
+                "ynamazon.settings", fromlist=["settings"]
+            ).settings.ynab_budget_id.get_secret_value(),
         ),
     ],
     amazon_user: Annotated[
         str,
         Argument(
             help="Amazon username",
-            default_factory=lambda: settings.amazon_user,
+            default_factory=lambda: __import__(
+                "ynamazon.settings", fromlist=["settings"]
+            ).settings.amazon_user,
         ),
     ],
     amazon_password: Annotated[
         str,
         Argument(
             help="Amazon password",
-            default_factory=lambda: settings.amazon_password.get_secret_value(),
+            default_factory=lambda: __import__(
+                "ynamazon.settings", fromlist=["settings"]
+            ).settings.amazon_password.get_secret_value(),
         ),
     ],
     force_logout: Annotated[
@@ -176,6 +207,10 @@ def ynamazon(
         logger.debug("Debug mode enabled. Logging set to DEBUG level.")
         logger.debug(f"Amazon Credentials: {amazon_user}")
 
+    from ynab.configuration import Configuration
+    from ynamazon.amazon_transactions import AmazonConfig
+    from ynamazon.main import process_transactions
+
     config = AmazonConfig(username=amazon_user, password=amazon_password, debug=debug)  # pyright: ignore[reportArgumentType]
 
     if force_logout:
@@ -189,6 +224,47 @@ def ynamazon(
     )
 
 
+@cli.command("create-missing")
+def create_missing_ynamazon(
+    history_pages: Annotated[
+        int | None,
+        Option(
+            "-p",
+            "--history-pages",
+            help="Also scan N pages per year from order history (bridges to create_missing_ynamazon.py)",
+        ),
+    ] = None,
+    history_page_size: Annotated[
+        int | None,
+        Option(
+            "--history-page-size",
+            help="Override assumed page size (default 10) for startIndex math (bridges to create_missing_ynamazon.py)",
+        ),
+    ] = None,
+) -> None:
+    """[bold cyan]Create or update itemized Amazon orders in YNAB.[/]"""
+    try:
+        mod = importlib.import_module("create_missing_ynamazon")
+    except Exception as e:
+        rprint(
+            "[bold red]Could not import create_missing_ynamazon.py.[/] "
+            "Run this from the repository root (or ensure it is on PYTHONPATH)."
+        )
+        raise e
+
+    script_argv: list[str] = ["create_missing_ynamazon.py"]
+    if history_pages is not None:
+        script_argv.extend(["-p", str(history_pages)])
+    if history_page_size is not None:
+        script_argv.extend(["--history-page-size", str(history_page_size)])
+
+    with _patched_argv(script_argv):
+        main = getattr(mod, "main", None)
+        if not callable(main):
+            raise RuntimeError("create_missing_ynamazon.py does not expose a callable main()")
+        main()
+
+
 @cli.callback(invoke_without_command=True)
 def yna_callback(ctx: Context) -> None:
     """
@@ -199,3 +275,7 @@ def yna_callback(ctx: Context) -> None:
     rprint("[bold cyan]Starting YNAmazon processing...[/]")
     if ctx.invoked_subcommand is None:
         typer_run(function=ynamazon)
+
+
+if __name__ == "__main__":
+    cli()
