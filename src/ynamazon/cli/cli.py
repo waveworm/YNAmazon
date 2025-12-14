@@ -243,6 +243,11 @@ def create_missing_ynamazon(
     ] = None,
 ) -> None:
     """[bold cyan]Create or update itemized Amazon orders in YNAB.[/]"""
+    import os
+
+    cwd = os.getcwd()
+    if cwd not in sys.path:
+        sys.path.insert(0, cwd)
     try:
         mod = importlib.import_module("create_missing_ynamazon")
     except Exception as e:
