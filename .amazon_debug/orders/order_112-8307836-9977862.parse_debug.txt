@@ -1,6 +1,0 @@
-gift_total=0.00
-candidate_product_titles=2
-  - Amazon Secured Card
-  - Amazon Business Card
-raw_price_tokens=0
-paired_items=0
