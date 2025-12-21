@@ -1,5 +1,12 @@
 # YNAmazon
-A program to annotate YNAB transactions with Amazon order info
+A program to annotate YNAB transactions with Amazon order info, supporting both gift card and credit card purchases with itemized splits.
+
+## Features
+- **Payment Transactions Mode**: Uses Amazon's payment transactions page to accurately track both gift card and credit card purchases
+- **Split Payment Support**: Orders paid with multiple payment methods (e.g., gift card + credit card) are automatically split into separate YNAB transactions
+- **Itemized Splits**: Multi-item orders create split transactions in YNAB with each item on its own line
+- **Smart Routing**: Transactions are automatically routed to the correct YNAB account based on payment method
+- **Debug Mode**: Test mode that creates transactions with blue flags for easy identification and cleanup
 
 ## Setup/Prerequisites
 1. **YNAB and Amazon Accounts**: Ensure you have active accounts for both YNAB and Amazon.
@@ -20,6 +27,7 @@ A program to annotate YNAB transactions with Amazon order info
         ```plaintext
         YNAB_API_KEY=your-ynab-api-key
         YNAB_BUDGET_ID=your-budget-id
+        YNAB_TARGET_ACCOUNT_ID=your-default-account-id
         YNAB_PAYEE_NAME_TO_BE_PROCESSED="Amazon - Needs Memo"
         YNAB_PAYEE_NAME_PROCESSING_COMPLETED=Amazon
         YNAB_USE_MARKDOWN=true/false
@@ -113,6 +121,121 @@ When enabled, the program will:
 - Preserve important information like order URLs and partial order warnings
 - Fall back to standard truncation if AI summarization fails or is unavailable
 - Will not use markdown formatting if enabled since this only increases memo length
+
+## Payment Transactions Mode (Recommended)
+
+The recommended way to use YNAmazon is with Payment Transactions Mode, which scrapes Amazon's payment transactions page (`https://www.amazon.com/cpe/yourpayments/transactions`) to get accurate payment method and amount information for each order.
+
+### Why Use Payment Transactions Mode?
+- **Accurate Payment Tracking**: Shows exactly which payment method was used for each order
+- **Split Payment Support**: If an order was paid with both gift card and credit card, it creates separate transactions for each
+- **Credit Card Support**: Tracks credit card purchases in addition to gift card purchases
+
+### Configuration
+
+Add these environment variables to your `.env` file:
+
+```plaintext
+# Enable payment transactions mode
+AMAZON_USE_PAYMENT_TRANSACTIONS=true
+
+# Account routing (get account IDs from YNAB URL when viewing the account)
+YNAB_GIFT_CARD_ACCOUNT_ID=your-gift-card-account-id
+YNAB_DEFAULT_CREDIT_CARD_ACCOUNT_ID=your-credit-card-account-id
+
+# Optional: Map specific credit cards to different accounts
+# Format: JSON object mapping last 4 digits to account IDs
+YNAB_CREDIT_CARD_ACCOUNTS={"1234": "account-id-for-card-ending-1234", "5678": "account-id-for-card-ending-5678"}
+```
+
+### How It Works
+1. Fetches the payment transactions page from Amazon
+2. Extracts payment method, amount, and order ID for each transaction
+3. For each unique order, fetches the order details to get itemized product information
+4. Creates YNAB transactions with:
+   - **Gift card payments** → Routed to gift card account, marked as "cleared"
+   - **Credit card payments** → Routed to credit card account, marked as "uncleared" (so you can match with bank import)
+   - **Split payments** → Creates separate transactions for each payment method with proportionally scaled item amounts
+
+### Transaction Format
+- **Single-item orders**: Created as regular transactions (no split)
+- **Multi-item orders**: Created as split transactions with each item on its own line, including the item name and price in the memo
+
+## Transaction Flags
+
+The script uses YNAB flag colors to help you identify transactions:
+
+- **🟢 Green Flag**: New transactions created in normal mode
+- **🔵 Blue Flag**: Transactions created in debug mode (for testing)
+
+All transactions are created **uncategorized** so you can assign the appropriate category in YNAB.
+
+## Debug Mode
+
+Debug mode helps you test the script without cluttering your YNAB with permanent transactions.
+
+### Enable Debug Mode
+```plaintext
+YNAMAZON_DEBUG=true
+```
+
+### What Debug Mode Does
+- **Blue Flag**: All created transactions have a blue flag for easy identification
+- **Bypasses Duplicate Check**: Always creates fresh transactions (ignores existing ones)
+- **Unique Import IDs**: Uses a timestamp-based import ID tag so transactions are always created fresh
+- **10-Day Lookback**: Forces a 10-day lookback period regardless of your normal setting
+
+### Normal Mode (Production)
+When `YNAMAZON_DEBUG=false`:
+- **Green Flag**: New transactions have a green flag
+- **Duplicate Prevention**: Skips orders that already exist in YNAB (checks last 90 days)
+- **Stable Import IDs**: Uses consistent import IDs so the same order won't be created twice
+
+### Cleanup
+1. In YNAB, filter transactions by blue flag
+2. Select all and delete
+3. Set `YNAMAZON_DEBUG=false` when ready for production use
+
+## All Environment Variables
+
+### Required
+| Variable | Description |
+|----------|-------------|
+| `YNAB_API_KEY` | Your YNAB Personal Access Token |
+| `YNAB_BUDGET_ID` | Your YNAB budget ID (from URL) |
+| `YNAB_TARGET_ACCOUNT_ID` | Default account for transactions |
+| `AMAZON_USERNAME` | Your Amazon email |
+| `AMAZON_PASSWORD` | Your Amazon password |
+
+### Account Routing
+| Variable | Description |
+|----------|-------------|
+| `YNAB_GIFT_CARD_ACCOUNT_ID` | Account for gift card purchases |
+| `YNAB_DEFAULT_CREDIT_CARD_ACCOUNT_ID` | Default account for credit card purchases |
+| `YNAB_CREDIT_CARD_ACCOUNTS` | JSON mapping card last-4-digits to account IDs |
+
+### Amazon Data Sources
+| Variable | Description |
+|----------|-------------|
+| `AMAZON_USE_PAYMENT_TRANSACTIONS` | Use payment transactions page (recommended) |
+| `AMAZON_GC_ACTIVITY` | Use gift card activity pages |
+| `AMAZON_GC_PLAYWRIGHT` | Use Playwright for interactive scraping |
+| `AMAZON_ORDER_REPORT_CSV` | Path to Amazon order report CSV |
+
+### Behavior
+| Variable | Description |
+|----------|-------------|
+| `YNAB_AMAZON_LOOKBACK_DAYS` | Days to look back for orders (default: 45) |
+| `YNAB_UPDATE_EXISTING` | Update existing transactions by import_id |
+| `YNAB_IMPORT_ID_TAG` | Suffix for import_id to bypass duplicate detection |
+| `YNAMAZON_DEBUG` | Enable debug mode with blue flags |
+
+### Debug/Development
+| Variable | Description |
+|----------|-------------|
+| `AMZN_DEBUG` | Enable HTML debug snapshots |
+| `AMAZON_PARSER_DEBUG` | Write per-order parse debug files |
+| `AMAZON_DUMP_DIR` | Directory for debug artifacts (default: `.amazon_debug`) |
 
 ## Limitations
 This script probably won't be able to handle weird edge cases. The amazon-orders library is only able to handle amazon.com and will not pull data from other countries' amazon sites. Any transactions in the amazon transaction history that don't relate to an amazon.com order will be ignored. As with any tool that relies on web scraping, things can change at any time and it is up to the maintainers of the amazon-orders library to fix things.

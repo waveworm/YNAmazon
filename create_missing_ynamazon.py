@@ -21,6 +21,10 @@ Quick usage
 
 Key environment variables (set in YNAmazon/.env)
   YNAB_API_KEY, YNAB_BUDGET_ID, YNAB_TARGET_ACCOUNT_ID: Required YNAB credentials.
+  YNAB_GIFT_CARD_ACCOUNT_ID: Optional account ID for gift card purchases.
+  YNAB_DEFAULT_CREDIT_CARD_ACCOUNT_ID: Optional default account for credit card purchases.
+  YNAB_CREDIT_CARD_ACCOUNTS: Optional JSON mapping card last-4-digits to account IDs.
+      Example: '{"1234": "account-uuid-for-citi", "5678": "account-uuid-for-chase"}'
   YNAB_UPDATE_EXISTING=true: Enable PATCHing by import_id (otherwise create‑only).
   YNAB_UPDATE_ONLY_UNAPPROVED=true: Only update unapproved transactions (default true).
   YNAB_UPDATE_ONLY_UNCATEGORIZED=true: Only update uncategorized transactions (default true).
@@ -29,6 +33,9 @@ Key environment variables (set in YNAmazon/.env)
   YNAB_IMPORT_ID_TAG=...: Optional suffix for import_id to bypass YNAB's duplicate memory.
   YNAB_CREATE_DUMMY_TEST=true: Create a $1 dummy transaction and exit (connectivity test).
 
+  AMAZON_USE_PAYMENT_TRANSACTIONS=true: Use the payment transactions page to get accurate
+      payment method and amount for each order. This is the recommended mode for tracking
+      both gift card and credit card purchases with proper itemized splits.
   AMAZON_GC_ACTIVITY=true: Enable GC activity scraping (find order IDs on GC pages).
   AMAZON_GC_PLAYWRIGHT=true: Use Playwright to drive login and save order details.
   AMAZON_DUMP_DIR=./.amazon_debug: Where HTML/debug artifacts are saved.
@@ -615,6 +622,245 @@ GC_ACTIVITY_URLS = [
 ]
 
 ORDER_ID_RE = re.compile(r"(\d{3}[\-‑–—]\d{7}[\-‑–—]\d{7})")
+
+# URL for Amazon's payment transactions page - shows all payments with method and amount
+PAYMENTS_TRANSACTIONS_URL = "https://www.amazon.com/cpe/yourpayments/transactions"
+
+def fetch_payment_transactions(session: AmazonSession, dump_dir: Path) -> List[Dict[str, Any]]:
+    """Fetch and parse Amazon's payment transactions page.
+    
+    This page lists all payment transactions with:
+    - Payment method (e.g., "Mastercard ****9669", "Amazon Gift Card")
+    - Amount charged to that payment method
+    - Order ID
+    
+    This is the authoritative source for split payments - if an order was paid
+    with both gift card and credit card, it will appear twice with different
+    payment methods and amounts.
+    
+    Returns: List of dicts with keys: order_id, payment_method, amount, date
+    """
+    dump_dir.mkdir(parents=True, exist_ok=True)
+    
+    try:
+        resp = session.get(PAYMENTS_TRANSACTIONS_URL)
+        html = resp.response.text
+        out = dump_dir / "transactions.html"
+        out.write_text(html, encoding="utf-8")
+        print(f"[payments] Saved transactions page → {out}")
+    except Exception as e:
+        print(f"[payments] Error fetching transactions page: {e}")
+        return []
+    
+    return parse_payment_transactions_html(html)
+
+
+def parse_payment_transactions_html(html: str) -> List[Dict[str, Any]]:
+    """Parse the payment transactions HTML to extract order/payment/amount data.
+    
+    Returns: List of dicts with keys: order_id, payment_method, amount
+    """
+    transactions = []
+    
+    # Pattern for order IDs (normalize dashes)
+    order_pattern = r'Order #(\d{3}-\d{7}-\d{7})'
+    # Pattern for amounts (negative = charge)
+    amount_pattern = r'-\$([0-9,]+\.[0-9]{2})'
+    # Pattern for payment methods
+    payment_pattern = r'(Mastercard \*{4}\d{4}|Visa \*{4}\d{4}|Amex \*{4}\d{4}|Discover \*{4}\d{4}|Amazon Gift Card)'
+    
+    # Find all matches with positions
+    orders = [(m.start(), m.group(1)) for m in re.finditer(order_pattern, html)]
+    amounts = [(m.start(), Decimal(m.group(1).replace(',', ''))) for m in re.finditer(amount_pattern, html)]
+    payments = [(m.start(), m.group(1)) for m in re.finditer(payment_pattern, html)]
+    
+    # Build transactions by finding payment + amount pairs that precede order IDs
+    # The HTML structure has: payment method, then amount, then order link
+    for order_pos, order_id in orders:
+        # Find the closest payment method and amount BEFORE this order
+        closest_payment = None
+        closest_amount = None
+        
+        for pay_pos, pay_method in reversed(payments):
+            if pay_pos < order_pos:
+                closest_payment = (pay_pos, pay_method)
+                break
+        
+        for amt_pos, amt in reversed(amounts):
+            if amt_pos < order_pos:
+                closest_amount = (amt_pos, amt)
+                break
+        
+        if closest_payment and closest_amount:
+            # Check they're reasonably close to each other (within 2000 chars)
+            if abs(closest_payment[0] - closest_amount[0]) < 2000:
+                transactions.append({
+                    'order_id': order_id,
+                    'payment_method': closest_payment[1],
+                    'amount': closest_amount[1]
+                })
+    
+    print(f"[payments] Parsed {len(transactions)} payment transactions")
+    return transactions
+
+
+def load_orders_from_payment_transactions(lookback_days: int,
+                                          skip_import_ids: Optional[set[str]] = None) -> List[dict]:
+    """Load orders using the payment transactions page as the source of truth.
+    
+    This is the recommended mode for tracking both gift card and credit card purchases.
+    It uses the payment transactions page to get the exact payment method and amount
+    for each transaction, then fetches order details to get itemized splits.
+    
+    For split-payment orders (paid with both gift card and credit card), this creates
+    separate normalized orders for each payment portion, with items scaled proportionally.
+    
+    Returns: List of normalized order dicts ready for YNAB posting.
+    """
+    def _clean(v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        return v.strip().strip('"').strip("'")
+    
+    session = AmazonSession(
+        _clean(os.getenv("AMAZON_USERNAME")),
+        _clean(os.getenv("AMAZON_PASSWORD")),
+        otp_secret_key=_clean(os.getenv("AMAZON_OTP_SECRET_KEY")),
+        debug=bool(os.getenv("AMZN_DEBUG")),
+    )
+    session.login()
+    
+    dump_base = Path(os.getenv("AMAZON_DUMP_DIR") or ".amazon_debug").expanduser()
+    payments_dir = dump_base / "payments"
+    orders_dir = dump_base / "orders"
+    orders_api = AmazonOrders(session)
+    
+    # Step 1: Fetch payment transactions
+    payment_txns = fetch_payment_transactions(session, payments_dir)
+    if not payment_txns:
+        print("[payments] No payment transactions found.")
+        return []
+    
+    # Step 2: Group by order_id to identify split payments
+    from collections import defaultdict
+    by_order: Dict[str, List[Dict]] = defaultdict(list)
+    for txn in payment_txns:
+        by_order[txn['order_id']].append(txn)
+    
+    print(f"[payments] Found {len(by_order)} unique orders from {len(payment_txns)} payment transactions")
+    
+    # Step 3: Fetch order details for each unique order
+    unique_order_ids = list(by_order.keys())
+    gc_fetch_order_details(session, unique_order_ids, orders_dir)
+    
+    # Step 4: Parse order details and build normalized orders for each payment
+    today = dt.date.today()
+    normalized_orders: List[dict] = []
+    
+    for order_id, payments in by_order.items():
+        # Load and parse order details HTML
+        order_html_path = orders_dir / f"order_{order_id}.html"
+        try:
+            html = order_html_path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            html = ""
+        
+        # Parse items from HTML
+        gift_total, items = parse_order_details_html(html)
+        order_date = _parse_order_date_from_html(html) or today
+        
+        # Try to get better item data from API
+        ship_date = None
+        try:
+            o = orders_api.get_order(order_id)
+            if hasattr(o, "order_date") and o.order_date:
+                order_date = o.order_date
+            api_items: List[Tuple[str, Decimal]] = []
+            for s in getattr(o, "shipments", []) or []:
+                sd = getattr(s, "ship_date", None)
+                if sd and (ship_date is None or sd < ship_date):
+                    ship_date = sd
+                for it in getattr(s, "items", []) or []:
+                    title = getattr(it, "title", "") or "Item"
+                    price = getattr(it, "price", None)
+                    if price is None:
+                        price = getattr(it, "item_price", 0)
+                    try:
+                        dprice = Decimal(str(price or 0))
+                    except Exception:
+                        dprice = Decimal("0")
+                    if dprice != 0:
+                        api_items.append((title, dprice))
+            if api_items:
+                items = api_items
+        except Exception as e:
+            if PARSER_DEBUG:
+                print(f"[payments] API item fetch failed for {order_id}: {e}")
+        
+        if not ship_date:
+            ship_date = order_date
+        
+        # Calculate total order value from items
+        items_total = sum(p for _, p in items) if items else Decimal("0")
+        
+        # For each payment on this order, create a normalized order
+        # with items scaled to match the payment amount
+        total_payments = sum(p['amount'] for p in payments)
+        
+        for pay_idx, payment in enumerate(payments):
+            pay_amount = payment['amount']
+            pay_method = payment['payment_method']
+            
+            # Calculate proportion of this payment to total
+            if total_payments > 0:
+                proportion = pay_amount / total_payments
+            else:
+                proportion = Decimal("1") / Decimal(len(payments))
+            
+            # Scale items to match this payment amount
+            if items and items_total > 0:
+                # Scale each item proportionally
+                scaled_items = []
+                running_total = Decimal("0")
+                for i, (title, price) in enumerate(items):
+                    if i == len(items) - 1:
+                        # Last item gets remainder to ensure exact total
+                        scaled_price = pay_amount - running_total
+                    else:
+                        scaled_price = (price * proportion).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                    running_total += scaled_price
+                    scaled_items.append((title, scaled_price))
+            else:
+                # No items parsed, create single line
+                scaled_items = [(f"Amazon order {order_id}", pay_amount)]
+            
+            # Build shipment items
+            ship_items = []
+            for title, scaled_price in scaled_items:
+                ship_items.append({
+                    "title": title,
+                    "qty": 1,
+                    "unit_price": str(scaled_price),
+                })
+            
+            # Build import_id suffix for split payments
+            import_id_suffix = f":p{pay_idx}" if len(payments) > 1 else ""
+            
+            normalized_orders.append({
+                "order_id": order_id + import_id_suffix,  # Unique ID for each payment
+                "order_id_base": order_id,  # Original order ID for memo
+                "order_date": order_date,
+                "shipments": [{
+                    "ship_date": ship_date,
+                    "items": ship_items,
+                }],
+                "payment_method": pay_method,
+                "payment_amount": pay_amount,  # Exact amount from payment transactions
+            })
+    
+    print(f"[source] Payment transactions → {len(normalized_orders)} orders with itemized splits")
+    return normalized_orders
+
 
 def collect_order_ids_from_history_pages(session: AmazonSession,
                                          start_date: dt.date,
@@ -1222,13 +1468,8 @@ def build_split_for_order(order: dict,
             line_total = (qty * unit_price).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
             grand_total += line_total
 
-            # category match by keyword (very simple: first match wins)
-            cat_id = default_category_id
-            lower_title = title.lower()
-            for keyword, cat in category_rules.items():
-                if keyword.lower() in lower_title:
-                    cat_id = cat
-                    break
+            # Leave all subtransactions uncategorized so user can categorize them
+            cat_id = None
 
             # Include original extracted unit price (if present) to help manual adjustments
             orig_unit_price = None
@@ -1304,13 +1545,31 @@ def main():
     payee_id = _clean(os.environ.get("YNAB_PAYEE_ID_AMAZON"))
     payee_name = _clean(os.environ.get("YNAB_PAYEE_NAME_AMAZON")) or "Amazon"
 
-    lookback_days = int(_clean(os.environ.get("YNAB_AMAZON_LOOKBACK_DAYS") or "45"))
+    # Debug mode: creates transactions with blue flag, unique import_id, forces 10-day lookback
+    debug_mode = os.getenv("YNAMAZON_DEBUG", "").lower() in ("1", "true", "yes")
+    if debug_mode:
+        import time as _time
+        debug_tag = f"d{int(_time.time()) % 1000000}"  # Unique tag based on timestamp
+        lookback_days = 10
+        print(f"[DEBUG MODE] ON - transactions will have BLUE flag, import_id tag: {debug_tag}, lookback: {lookback_days} days")
+    else:
+        debug_tag = None
+        lookback_days = int(_clean(os.environ.get("YNAB_AMAZON_LOOKBACK_DAYS") or "45"))
+    
     category_rules_json = _clean(os.environ.get("YNAB_CATEGORY_RULES_JSON") or "{}")
     category_rules: Dict[str, str] = json.loads(category_rules_json)
 
     default_category_id = _clean(os.environ.get("YNAB_DEFAULT_CATEGORY_ID"))  # optional
 
     gift_card_account_id = _clean(os.environ.get("YNAB_GIFT_CARD_ACCOUNT_ID"))  # optional separate account for gift card spend
+    default_cc_account_id = _clean(os.environ.get("YNAB_DEFAULT_CREDIT_CARD_ACCOUNT_ID"))  # optional default credit card account
+    # Optional JSON mapping of card last-4-digits to YNAB account IDs
+    cc_accounts_json = _clean(os.environ.get("YNAB_CREDIT_CARD_ACCOUNTS") or "{}")
+    try:
+        cc_accounts_map: Dict[str, str] = json.loads(cc_accounts_json)
+    except json.JSONDecodeError:
+        print(f"Warning: YNAB_CREDIT_CARD_ACCOUNTS is not valid JSON, ignoring. Value: {cc_accounts_json}")
+        cc_accounts_map = {}
     csv_path = _clean(os.environ.get("AMAZON_ORDER_REPORT_CSV"))  # optional CSV fallback
 
     if os.getenv("AMZN_DEBUG"):
@@ -1319,12 +1578,26 @@ def main():
         print("[inspect] Amazon order inspect mode is ON. Raw + normalized details will print to terminal.")
     if os.getenv("AMAZON_DUMP_HISTORY_HTML"):
         print("[dump] History HTML dump is ON; pages will be written to ./.amazon_debug/")
+    
+    # New payment transactions mode - recommended for tracking both GC and CC purchases
+    use_payment_transactions = os.getenv("AMAZON_USE_PAYMENT_TRANSACTIONS", "").lower() in ("1", "true", "yes")
+    if use_payment_transactions:
+        print("[payments] Payment transactions mode is ON (using yourpayments/transactions page).")
+    
     use_gc_activity = os.getenv("AMAZON_GC_ACTIVITY", "").lower() in ("1", "true", "yes")
     if use_gc_activity:
         print("[gc] Gift-Card Activity mode is ON (collect order IDs from GC pages and fetch details HTML).")
     use_gc_activity_pw = os.getenv("AMAZON_GC_PLAYWRIGHT", "").lower() in ("1","true","yes")
     if use_gc_activity_pw:
         print("[gc-pw] Playwright GC mode is ON (interactive scrape of GC + order details).")
+    
+    # Print account configuration
+    if gift_card_account_id:
+        print(f"[accounts] Gift card account configured: {gift_card_account_id[:8]}...")
+    if default_cc_account_id:
+        print(f"[accounts] Default credit card account configured: {default_cc_account_id[:8]}...")
+    if cc_accounts_map:
+        print(f"[accounts] Credit card mapping configured for cards ending in: {', '.join(cc_accounts_map.keys())}")
 
     force_tx_only = os.getenv("AMAZON_SCRAPE_DISABLE", "").lower() in ("1", "true", "yes")
 
@@ -1604,7 +1877,13 @@ def main():
 
     # Load recent Amazon orders
     orders: List[dict] = []
-    if csv_path:
+    
+    # Priority 1: Payment transactions mode (recommended for GC + CC tracking)
+    if use_payment_transactions:
+        orders = load_orders_from_payment_transactions(lookback_days, skip_import_ids=_skip_import_ids)
+    
+    # Priority 2: CSV fallback
+    if not orders and csv_path:
         try:
             orders = load_orders_from_csv(csv_path, lookback_days)
             print(f"[source] CSV report → {len(orders)} orders")
@@ -1639,16 +1918,21 @@ def main():
             print(f"{dt_str}  {o['order_id']}  total=${total}  pay='{pm}'")
 
     # Build a set of import_ids already present (to be idempotent when not updating)
-    # We'll fetch recent account transactions in the same lookback window.
-    since_date = (dt.date.today() - dt.timedelta(days=lookback_days)).isoformat()
+    # Use a longer lookback for existing check to catch duplicates even in debug mode
+    ynab_existing_lookback = max(lookback_days, 90)  # At least 90 days to catch older transactions
+    since_date = (dt.date.today() - dt.timedelta(days=ynab_existing_lookback)).isoformat()
     # IMPORTANT: Use budget-wide existing lookup, not account-scoped.
     # We may post transactions to a different account (e.g., YNAB_GIFT_CARD_ACCOUNT_ID),
     # and account-scoped lookup would miss those and re-create duplicates.
-    # Removed try/except ApiException block
+    # Always fetch fresh from budget-wide endpoint to catch all existing transactions
+    existing_import_ids = set()
     try:
-        existing_import_ids = set(_existing_map_for_skip.keys())
-    except Exception:
-        existing_import_ids = ynab_get_existing_import_ids(budget_id, account_id, since_date)
+        fresh_map = ynab_get_existing_by_import_id(budget_id, account_id, since_date)
+        existing_import_ids = set(fresh_map.keys())
+        yna_count = len([k for k in existing_import_ids if k.startswith('YNA') or k.startswith('YNAMAZON')])
+        print(f"[ynab] Found {len(existing_import_ids)} existing transactions ({yna_count} YNA/YNAMAZON)")
+    except Exception as e:
+        print(f"[ynab] Warning: Could not fetch existing import_ids: {e}")
 
     to_create = []
 
@@ -1656,42 +1940,129 @@ def main():
 
     # Optional: allow changing import_id if recreating after deletions (YNAB de-dup persists for a while)
     import_id_tag = _clean(os.environ.get("YNAB_IMPORT_ID_TAG"))  # e.g., "v2" or date stamp
+    # In debug mode, use the debug_tag to ensure unique import_ids
+    if debug_mode and debug_tag:
+        import_id_tag = debug_tag
 
     def _build_import_id(order_id: str) -> str:
-        base = f"YNAMAZON:{order_id}"
+        """Build import_id, respecting YNAB's 36 character limit."""
+        # YNAB limit is 36 chars. Order IDs like "111-1234567-1234567:p0" can be 22 chars
+        # Use shorter prefix and compact format
+        prefix = "YNA"  # 3 chars
+        # Remove dashes from order_id to save space: "111-1234567-1234567" -> "11112345671234567"
+        # But keep :p0/:p1 suffix if present
+        if ":p" in order_id:
+            base_id, suffix = order_id.rsplit(":p", 1)
+            compact_id = base_id.replace("-", "") + "p" + suffix
+        else:
+            compact_id = order_id.replace("-", "")
+        
         if import_id_tag:
-            return f"{base}:{import_id_tag}"
-        return base
+            result = f"{prefix}:{compact_id}:{import_id_tag}"
+        else:
+            result = f"{prefix}:{compact_id}"
+        
+        # Truncate if still too long
+        if len(result) > 36:
+            result = result[:36]
+        return result
 
+    # Regex to extract last 4 digits from credit card payment methods
+    CARD_LAST4_RE = re.compile(r'\*{4}(\d{4})')
+    
+    def _get_account_for_payment(pm_text: str) -> Tuple[str, str]:
+        """Returns (account_id, label) for a payment method string."""
+        pm_lower = pm_text.lower()
+        
+        # Check for gift card payment
+        if gift_card_account_id and ("gift card" in pm_lower or pm_lower == "amazon gift card balance"):
+            return gift_card_account_id, "gift card"
+        
+        # Try to extract credit card last 4 digits
+        card_match = CARD_LAST4_RE.search(pm_text)
+        if card_match:
+            last4 = card_match.group(1)
+            if last4 in cc_accounts_map:
+                return cc_accounts_map[last4], f"credit card (mapped:{last4})"
+            elif default_cc_account_id:
+                return default_cc_account_id, "credit card (default)"
+        elif default_cc_account_id and any(kw in pm_lower for kw in ("visa", "mastercard", "amex", "discover", "credit", "debit")):
+            return default_cc_account_id, "credit card (default)"
+        
+        # Fallback to the main target account
+        return account_id, "default"
+
+    def _check_order_exists(order_id: str) -> bool:
+        """Check if order already exists using any known import_id format."""
+        # Strip :p0/:p1 suffix to get base order ID
+        base_order_id = order_id.split(":p")[0] if ":p" in order_id else order_id
+        
+        # Check for any existing import_id that contains this order ID (with or without dashes)
+        # This catches: YNAMAZON:111-4689615-9165062:v14, YNA:11146896159165062:d322436, etc.
+        for existing_id in existing_import_ids:
+            # Check if base order ID (with dashes) is in the existing import_id
+            if base_order_id in existing_id:
+                return True
+            # Check if compact order ID (without dashes) is in the existing import_id
+            compact_id = base_order_id.replace("-", "")
+            if compact_id in existing_id:
+                return True
+        
+        return False
+
+    skipped_count = 0
     for order in orders:
         order_id = order["order_id"]
         txn_date = best_txn_date(order)
-        # Stable import_id: "YNAMAZON:{order_id}"
         import_id = _build_import_id(order_id)
-        if import_id in existing_import_ids and not update_existing:
+        
+        # Check if this order already exists (using any import_id format)
+        # In debug mode, always create fresh transactions (skip duplicate check)
+        if not debug_mode and _check_order_exists(order_id) and not update_existing:
+            skipped_count += 1
             continue  # already created and not updating
 
         total_milli, sublines, parent_memo = build_split_for_order(
             order, category_rules, default_category_id
         )
 
-        # If the order was paid with gift card and a dedicated GC account is configured,
-        # post the outflow to that account (so your bank account has no $0 noise).
-        pm_text = (order.get("payment_method") or "").lower()
-        use_gc = bool(gift_card_account_id) and ("gift card" in pm_text or total_milli != 0 and pm_text == "amazon gift card balance")
-        post_account_id = gift_card_account_id if use_gc else account_id
+        # Determine target account based on payment method
+        pm_text = order.get("payment_method") or ""
+        post_account_id, acct_label = _get_account_for_payment(pm_text)
+        
+        # Credit card transactions should be uncleared (bank will import the actual charge)
+        # Gift card transactions can be cleared since they're from our tracking
+        is_gift_card = "gift card" in pm_text.lower()
+        cleared_status = "cleared" if is_gift_card else "uncleared"
+        
+        # Use the base order ID for memo if available (for split payments)
+        memo_order_id = order.get("order_id_base", order_id)
+        
+        print(f"[routing] Order {order_id}: payment='{pm_text}' → {acct_label} account ({cleared_status})")
 
         parent = {
             "account_id": post_account_id,
             "date": txn_date.isoformat(),
             "amount": total_milli,        # parent should equal sum(subs)
             "memo": parent_memo,
-            "cleared": "cleared",
+            "cleared": cleared_status,
             "approved": False,            # let you approve in YNAB
             "import_id": import_id,
-            "category_id": None,          # required for split parents
-            "subtransactions": sublines,
         }
+        
+        # Only use split transactions if there's more than 1 item
+        if len(sublines) > 1:
+            parent["category_id"] = None  # required for split parents
+            parent["subtransactions"] = sublines
+        else:
+            # Single item - use regular transaction (no split), leave uncategorized
+            parent["category_id"] = None
+        
+        # Add flag color: blue for debug mode, green for normal mode
+        if debug_mode:
+            parent["flag_color"] = "blue"
+        else:
+            parent["flag_color"] = "green"
         if payee_id:
             parent["payee_id"] = payee_id
         else:
@@ -1699,6 +2070,9 @@ def main():
 
         to_create.append(parent)
 
+    if skipped_count > 0:
+        print(f"[skip] Skipped {skipped_count} orders that already exist in YNAB.")
+    
     if not to_create:
         print("Hint: set YNAB_UPDATE_EXISTING=true to update any existing placeholder transactions by import_id.")
         print("No missing orders to create. (Nothing new or all already posted.)")
