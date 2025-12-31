@@ -621,6 +621,37 @@ GC_ACTIVITY_URLS = [
     "https://www.amazon.com/hz/youraccount/gc/balance",  # alt route
 ]
 
+
+def parse_amazon_gc_balance(html: str) -> Optional[Decimal]:
+    """Parse Amazon gift card balance from the GC activity page HTML.
+    
+    Returns the balance as a Decimal, or None if not found.
+    """
+    # Look for the balance value in the gc-ui-balance element
+    match = re.search(r'gc-ui-balance-gc-balance-value[^>]*>([^<]+)', html)
+    if match:
+        balance_text = match.group(1).strip()
+        # Extract dollar amount (e.g., "$158.98" -> "158.98")
+        amount_match = re.search(r'\$?([\d,]+\.?\d*)', balance_text)
+        if amount_match:
+            amount_str = amount_match.group(1).replace(',', '')
+            try:
+                return Decimal(amount_str)
+            except Exception:
+                pass
+    return None
+
+
+def get_amazon_gc_balance_from_file(gc_html_path: Path) -> Optional[Decimal]:
+    """Read and parse Amazon GC balance from a saved HTML file."""
+    if not gc_html_path.exists():
+        return None
+    try:
+        html = gc_html_path.read_text(encoding="utf-8")
+        return parse_amazon_gc_balance(html)
+    except Exception:
+        return None
+
 ORDER_ID_RE = re.compile(r"(\d{3}[\-‑–—]\d{7}[\-‑–—]\d{7})")
 
 # URL for Amazon's payment transactions page - shows all payments with method and amount
@@ -1686,6 +1717,53 @@ def main():
                     out[imp] = t
         return out
 
+    def ynab_get_account_balance(budget_id: str, account_id: str) -> Optional[Decimal]:
+        """Get the cleared balance for a YNAB account in dollars."""
+        url = f"{BASE}/budgets/{budget_id}/accounts/{account_id}"
+        with requests.Session() as s:
+            s.trust_env = False
+            r = s.get(url, headers=AUTH_HEADER, timeout=20)
+            try:
+                r.raise_for_status()
+            except Exception:
+                print(f"YNAB account lookup error: {r.status_code} {r.text}")
+                return None
+            data = r.json()
+            account = data.get("data", {}).get("account", {})
+            # YNAB returns balance in milliunits (1000 = $1.00)
+            cleared_balance_milli = account.get("cleared_balance", 0)
+            return Decimal(cleared_balance_milli) / 1000
+    
+    def ynab_get_uncleared_transactions(budget_id: str, account_id: str) -> list[dict]:
+        """Get all uncleared transactions for an account."""
+        url = f"{BASE}/budgets/{budget_id}/accounts/{account_id}/transactions"
+        with requests.Session() as s:
+            s.trust_env = False
+            r = s.get(url, headers=AUTH_HEADER, timeout=30)
+            try:
+                r.raise_for_status()
+            except Exception:
+                print(f"YNAB transactions lookup error: {r.status_code} {r.text}")
+                return []
+            data = r.json()
+            txns = data.get("data", {}).get("transactions", [])
+            return [t for t in txns if t.get("cleared") != "reconciled"]
+    
+    def ynab_reconcile_transactions(budget_id: str, txn_ids: list[str]) -> int:
+        """Mark transactions as reconciled. Returns count of successfully reconciled."""
+        reconciled = 0
+        for txn_id in txn_ids:
+            url = f"{BASE}/budgets/{budget_id}/transactions/{txn_id}"
+            payload = {"transaction": {"cleared": "reconciled"}}
+            with requests.Session() as s:
+                s.trust_env = False
+                r = s.put(url, headers=AUTH_HEADER, json=payload, timeout=20)
+                if r.status_code == 200:
+                    reconciled += 1
+                else:
+                    print(f"  Failed to reconcile {txn_id}: {r.status_code}")
+        return reconciled
+
     def ynab_create_or_update_transactions(budget_id: str, account_id: str, txns: list[dict], since_date: Optional[str] = None) -> list[dict]:
         """Create or update transactions.
 
@@ -1878,28 +1956,49 @@ def main():
     # Load recent Amazon orders
     orders: List[dict] = []
     
-    # Priority 1: Payment transactions mode (recommended for GC + CC tracking)
-    if use_payment_transactions:
-        orders = load_orders_from_payment_transactions(lookback_days, skip_import_ids=_skip_import_ids)
+    # Combine multiple data sources and deduplicate by order_id
+    def merge_orders(existing: List[dict], new_orders: List[dict], source_name: str) -> List[dict]:
+        """Merge new orders into existing list, avoiding duplicates by order_id."""
+        existing_ids = {o["order_id"] for o in existing}
+        added = 0
+        for order in new_orders:
+            if order["order_id"] not in existing_ids:
+                existing.append(order)
+                existing_ids.add(order["order_id"])
+                added += 1
+        if added > 0:
+            print(f"[merge] Added {added} new orders from {source_name} (skipped {len(new_orders) - added} duplicates)")
+        return existing
     
-    # Priority 2: CSV fallback
+    # Source 1: Payment transactions mode (recommended for GC + CC tracking)
+    if use_payment_transactions:
+        payment_orders = load_orders_from_payment_transactions(lookback_days, skip_import_ids=_skip_import_ids)
+        orders = merge_orders(orders, payment_orders, "payment transactions")
+    
+    # Source 2: Gift card activity (can catch orders not yet on payment page)
+    if use_gc_activity_pw:
+        gc_pw_orders = load_orders_from_gc_playwright(lookback_days, skip_import_ids=_skip_import_ids)
+        orders = merge_orders(orders, gc_pw_orders, "gift card playwright")
+    
+    if use_gc_activity:
+        gc_orders = load_orders_from_gc_activity(lookback_days, history_pages=_history_pages, history_page_size=_history_page_size, skip_import_ids=_skip_import_ids)
+        orders = merge_orders(orders, gc_orders, "gift card activity")
+    
+    # Source 3: CSV fallback
     if not orders and csv_path:
         try:
-            orders = load_orders_from_csv(csv_path, lookback_days)
-            print(f"[source] CSV report → {len(orders)} orders")
+            csv_orders = load_orders_from_csv(csv_path, lookback_days)
+            orders = merge_orders(orders, csv_orders, "CSV report")
         except Exception as e:
             print(f"CSV load failed ({e}); falling back to other sources.")
-    if not orders and use_gc_activity_pw:
-        orders = load_orders_from_gc_playwright(lookback_days, skip_import_ids=_skip_import_ids)
-    if not orders and use_gc_activity:
-        orders = load_orders_from_gc_activity(lookback_days, history_pages=_history_pages, history_page_size=_history_page_size, skip_import_ids=_skip_import_ids)
+    
+    # Source 4: Other fallbacks if still no orders
     if not orders and force_tx_only:
         orders = load_amazon_transactions_only(lookback_days)
         print(f"[source] Amazon Transactions API only → {len(orders)} entries")
     if not orders and not force_tx_only:
         try:
             orders = load_amazon_orders(lookback_days)
-            # The load_amazon_orders function now prints the source and count (normalized), so no need to print here.
         except NotImplementedError as e:
             print(e)
             return
@@ -2080,16 +2179,55 @@ def main():
             print("Note: Gift-card-only orders often don’t appear in Amazon’s Transactions feed; CSV mode helps capture them.")
         else:
             print("Tip: Set AMAZON_ORDER_REPORT_CSV=/path/to/OrderHistory.csv or set AMAZON_SCRAPE_DISABLE=true to use the Transactions API directly.")
-        return
+        # Don't return - still run reconciliation below
 
-    # POST create
-    # Removed try/except ApiException block
-    created = ynab_create_or_update_transactions(budget_id, account_id, to_create, since_date)
-    if not created:
-        return
-    print(f"Created {len(created)} YNAB transaction(s).")
-    for t in created:
-        print(f"- {t['date']} {t['memo']}  amount={t['amount']}  id={t['id']}")
+    # POST create (only if there are transactions to create)
+    if to_create:
+        created = ynab_create_or_update_transactions(budget_id, account_id, to_create, since_date)
+        if created:
+            print(f"Created {len(created)} YNAB transaction(s).")
+            for t in created:
+                print(f"- {t['date']} {t['memo']}  amount={t['amount']}  id={t['id']}")
+
+    # Gift card balance reconciliation
+    reconcile_gc = os.getenv("YNAB_RECONCILE_GC_BALANCE", "").lower() in ("1", "true", "yes")
+    if reconcile_gc and gift_card_account_id:
+        print("\n[reconcile] Checking gift card balance...")
+        
+        # Get Amazon's reported balance from saved HTML
+        gc_html_path = Path(".amazon_debug/gc/gc_activity_1.html")
+        amazon_balance = get_amazon_gc_balance_from_file(gc_html_path)
+        
+        if amazon_balance is None:
+            print("[reconcile] Could not read Amazon gift card balance from HTML.")
+        else:
+            print(f"[reconcile] Amazon reports gift card balance: ${amazon_balance}")
+            
+            # Get YNAB account balance
+            ynab_balance = ynab_get_account_balance(budget_id, gift_card_account_id)
+            if ynab_balance is None:
+                print("[reconcile] Could not get YNAB account balance.")
+            else:
+                print(f"[reconcile] YNAB cleared balance: ${ynab_balance}")
+                
+                # Compare balances
+                if amazon_balance == ynab_balance:
+                    print("[reconcile] ✓ Balances match! Reconciling cleared transactions...")
+                    
+                    # Get all non-reconciled transactions and mark them reconciled
+                    unreconciled = ynab_get_uncleared_transactions(budget_id, gift_card_account_id)
+                    cleared_txns = [t for t in unreconciled if t.get("cleared") == "cleared"]
+                    
+                    if cleared_txns:
+                        txn_ids = [t["id"] for t in cleared_txns]
+                        count = ynab_reconcile_transactions(budget_id, txn_ids)
+                        print(f"[reconcile] Reconciled {count} transaction(s).")
+                    else:
+                        print("[reconcile] No cleared transactions to reconcile.")
+                else:
+                    diff = ynab_balance - amazon_balance
+                    print(f"[reconcile] ✗ Balances do NOT match! Difference: ${diff}")
+                    print("[reconcile] Please review transactions manually before reconciling.")
 
 
 if __name__ == "__main__":
