@@ -234,6 +234,20 @@ def create_missing_ynamazon(
             help="Also scan N pages per year from order history (bridges to create_missing_ynamazon.py)",
         ),
     ] = None,
+    order_id: Annotated[
+        list[str] | None,
+        Option(
+            "--order-id",
+            help="Process a specific Amazon order ID (repeatable).",
+        ),
+    ] = None,
+    force_repost: Annotated[
+        bool,
+        Option(
+            "--force-repost",
+            help="Bypass duplicate checks and add a unique import_id tag per run.",
+        ),
+    ] = False,
     history_page_size: Annotated[
         int | None,
         Option(
@@ -260,6 +274,11 @@ def create_missing_ynamazon(
     script_argv: list[str] = ["create_missing_ynamazon.py"]
     if history_pages is not None:
         script_argv.extend(["-p", str(history_pages)])
+    if order_id:
+        for oid in order_id:
+            script_argv.extend(["--order-id", oid])
+    if force_repost:
+        script_argv.append("--force-repost")
     if history_page_size is not None:
         script_argv.extend(["--history-page-size", str(history_page_size)])
 

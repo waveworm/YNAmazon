@@ -84,6 +84,24 @@ def _to_decimal_money(s: str) -> Decimal:
     return (val * sign).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
 
+def _to_decimal_value(value: Any) -> Optional[Decimal]:
+    if value is None:
+        return None
+    if isinstance(value, Decimal):
+        return value
+    if isinstance(value, (int, float)):
+        return Decimal(str(value))
+    if isinstance(value, str):
+        cleaned = value.strip()
+        if not cleaned:
+            return None
+        try:
+            return Decimal(cleaned)
+        except Exception:
+            return _to_decimal_money(cleaned)
+    return None
+
+
 # Try to parse an order date from HTML (best-effort; GC HTML varies by region)
 MONTHS = (
     "January","February","March","April","May","June","July","August","September","October","November","December"
@@ -473,6 +491,42 @@ def load_amazon_orders(lookback_days: int) -> List[dict]:
 
     inspect = (os.getenv("AMAZON_INSPECT", "").lower() in ("1", "true", "yes"))
 
+    def _order_total_hint(raw_order: Any) -> Optional[Decimal]:
+        direct_fields = [
+            "grand_total",
+            "order_total",
+            "total",
+            "total_amount",
+            "total_payment",
+            "total_charged",
+        ]
+        for name in direct_fields:
+            val = _to_decimal_value(getattr(raw_order, name, None))
+            if val is not None and val != 0:
+                return val
+
+        subtotal = _to_decimal_value(getattr(raw_order, "item_subtotal", None))
+        if subtotal is None:
+            subtotal = _to_decimal_value(getattr(raw_order, "total_before_tax", None))
+        if subtotal is None:
+            return None
+
+        shipping = _to_decimal_value(getattr(raw_order, "shipping_total", None))
+        if shipping is None:
+            shipping = _to_decimal_value(getattr(raw_order, "shipping_handling", None)) or Decimal("0")
+
+        tax = _to_decimal_value(getattr(raw_order, "tax_total", None))
+        if tax is None:
+            tax = _to_decimal_value(getattr(raw_order, "estimated_tax", None)) or Decimal("0")
+
+        discounts = _to_decimal_value(getattr(raw_order, "discounts_total", None)) or Decimal("0")
+        promos = _to_decimal_value(getattr(raw_order, "promotions_total", None)) or Decimal("0")
+        sas = _to_decimal_value(getattr(raw_order, "subscribe_and_save_discount", None)) or Decimal("0")
+
+        return (subtotal + shipping + tax - abs(discounts) - abs(promos) - abs(sas)).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+
     def _dump_order_debug(raw_order: Any, normalized_order: Optional[dict] = None):
         if not inspect:
             return
@@ -538,6 +592,8 @@ def load_amazon_orders(lookback_days: int) -> List[dict]:
                     _dump_order_debug(o)
 
                 shipments = []
+                flat_items: List[Tuple[str, Decimal]] = []
+                flat_item_refs: List[dict] = []
                 for s in getattr(o, "shipments", []) or []:
                     ship_date = getattr(s, "ship_date", order_date)
                     items = []
@@ -547,21 +603,35 @@ def load_amazon_orders(lookback_days: int) -> List[dict]:
                         price = getattr(it, "price", None)
                         if price is None:
                             price = getattr(it, "item_price", 0)
+                        dprice = _to_decimal_value(price) or Decimal("0")
                         items.append({
                             "title": title,
                             "qty": qty,
-                            "unit_price": str(price or 0),
+                            "unit_price": str(dprice),
                         })
+                        flat_items.append((title, dprice))
+                        flat_item_refs.append(items[-1])
                     shipments.append({
                         "ship_date": ship_date,
                         "items": items,
                     })
+
+                order_total = _order_total_hint(o)
+                items_total = sum(p for _, p in flat_items) if flat_items else Decimal("0")
+                if order_total is not None and items_total > 0:
+                    delta = (items_total - order_total).copy_abs()
+                    if delta >= Decimal("0.01"):
+                        scaled_items = _renormalize_items_to_total(flat_items, abs(order_total))
+                        for ref, (_, scaled_price) in zip(flat_item_refs, scaled_items):
+                            ref["orig_unit_price"] = ref["unit_price"]
+                            ref["unit_price"] = str(scaled_price)
 
                 normalized.append({
                     "order_id": order_id,
                     "order_date": order_date,
                     "shipments": shipments,
                     "payment_method": getattr(o, "payment_method", None),
+                    "order_total": order_total,
                 })
                 if inspect:
                     _dump_order_debug(o, normalized[-1])
@@ -1546,13 +1616,19 @@ def main():
         parser = argparse.ArgumentParser(add_help=False)
         parser.add_argument("-p", "--history-pages", type=int, dest="history_pages")
         parser.add_argument("--history-page-size", type=int, dest="history_page_size")
+        parser.add_argument("--order-id", action="append", dest="order_ids")
+        parser.add_argument("--force-repost", action="store_true", dest="force_repost")
         # Parse known args and leave the rest (so we don't break anything)
         args, _ = parser.parse_known_args()
         _history_pages = args.history_pages
         _history_page_size = args.history_page_size
+        _order_ids = args.order_ids or []
+        _force_repost = bool(args.force_repost)
     except Exception:
         _history_pages = None
         _history_page_size = None
+        _order_ids = []
+        _force_repost = False
 
     # Sanitize env values (strip quotes/whitespace)
     def _clean(v: Optional[str]) -> Optional[str]:
@@ -1575,6 +1651,16 @@ def main():
 
     payee_id = _clean(os.environ.get("YNAB_PAYEE_ID_AMAZON"))
     payee_name = _clean(os.environ.get("YNAB_PAYEE_NAME_AMAZON")) or "Amazon"
+    whole_foods_payee_id = _clean(os.environ.get("YNAB_PAYEE_ID_WHOLE_FOODS"))
+    whole_foods_payee_name = _clean(os.environ.get("YNAB_PAYEE_NAME_WHOLE_FOODS")) or "Whole Foods"
+    whole_foods_account_id = _clean(os.environ.get("YNAB_WHOLE_FOODS_ACCOUNT_ID"))
+    whole_foods_force_credit_card = os.getenv("YNAB_WHOLE_FOODS_FORCE_CREDIT_CARD", "").lower() in ("1", "true", "yes")
+    whole_foods_orders_raw = _clean(os.environ.get("YNAB_WHOLE_FOODS_ORDER_IDS") or "")
+    whole_foods_order_ids = {
+        oid.strip()
+        for oid in whole_foods_orders_raw.split(",")
+        if oid.strip()
+    }
 
     # Debug mode: creates transactions with blue flag, unique import_id, forces 10-day lookback
     debug_mode = os.getenv("YNAMAZON_DEBUG", "").lower() in ("1", "true", "yes")
@@ -2044,6 +2130,20 @@ def main():
     # In debug mode, use the debug_tag to ensure unique import_ids
     if debug_mode and debug_tag:
         import_id_tag = debug_tag
+    elif _force_repost and not import_id_tag:
+        import time as _time
+        import_id_tag = f"rerun{int(_time.time())}"
+
+    def _base_order_id(oid: str) -> str:
+        return oid.split(":p")[0] if ":p" in oid else oid
+
+    if _order_ids:
+        order_filter = {oid.strip() for oid in _order_ids if oid.strip()}
+        if order_filter:
+            orders = [o for o in orders if _base_order_id(o["order_id"]) in order_filter]
+            if not orders:
+                print(f"No matching orders found for: {', '.join(sorted(order_filter))}")
+                return
 
     def _build_import_id(order_id: str) -> str:
         """Build import_id, respecting YNAB's 36 character limit."""
@@ -2093,6 +2193,20 @@ def main():
         # Fallback to the main target account
         return account_id, "default"
 
+    def _is_whole_foods_order(order: dict) -> bool:
+        base_id = order.get("order_id_base", order.get("order_id", ""))
+        if base_id in whole_foods_order_ids:
+            return True
+        pm_text = (order.get("payment_method") or "").lower()
+        if "whole foods" in pm_text or "wholefoods" in pm_text:
+            return True
+        for shipment in order.get("shipments", []):
+            for item in shipment.get("items", []):
+                title = str(item.get("title", "")).lower()
+                if "whole foods" in title or "wholefoods" in title:
+                    return True
+        return False
+
     def _check_order_exists(order_id: str) -> bool:
         """Check if order already exists using any known import_id format."""
         # Strip :p0/:p1 suffix to get base order ID
@@ -2119,7 +2233,7 @@ def main():
         
         # Check if this order already exists (using any import_id format)
         # In debug mode, always create fresh transactions (skip duplicate check)
-        if not debug_mode and _check_order_exists(order_id) and not update_existing:
+        if not debug_mode and not _force_repost and _check_order_exists(order_id) and not update_existing:
             skipped_count += 1
             continue  # already created and not updating
 
@@ -2138,6 +2252,16 @@ def main():
         
         # Use the base order ID for memo if available (for split payments)
         memo_order_id = order.get("order_id_base", order_id)
+
+        if _is_whole_foods_order(order):
+            if whole_foods_account_id:
+                post_account_id = whole_foods_account_id
+                acct_label = "whole foods (override account)"
+                cleared_status = "uncleared"
+            elif whole_foods_force_credit_card and default_cc_account_id:
+                post_account_id = default_cc_account_id
+                acct_label = "whole foods (force credit card)"
+                cleared_status = "uncleared"
         
         print(f"[routing] Order {order_id}: payment='{pm_text}' → {acct_label} account ({cleared_status})")
 
@@ -2164,7 +2288,13 @@ def main():
             parent["flag_color"] = "blue"
         else:
             parent["flag_color"] = "green"
-        if payee_id:
+        if _is_whole_foods_order(order):
+            if whole_foods_payee_id:
+                parent["payee_id"] = whole_foods_payee_id
+            else:
+                parent["payee_name"] = whole_foods_payee_name
+            print(f"[payee] Order {memo_order_id} routed to '{whole_foods_payee_name}'")
+        elif payee_id:
             parent["payee_id"] = payee_id
         else:
             parent["payee_name"] = payee_name
