@@ -1649,20 +1649,20 @@ def main():
     import hashlib as _hashlib
     print("YNAB token sha256:", _hashlib.sha256(ynab_api_key.encode()).hexdigest())
 
+    ynab_session = requests.Session()
+    ynab_session.trust_env = False
+
     # Preflight 1: Raw HTTP (bypasses SDK). If this passes, token is good.
     try:
-        with requests.Session() as sess:
-            # Ignore proxy env like HTTP_PROXY/HTTPS_PROXY to match curl behavior here
-            sess.trust_env = False
-            r = sess.get(
-                "https://api.youneedabudget.com/v1/user",
-                headers={
-                    "Authorization": f"Bearer {ynab_api_key}",
-                    "Accept": "*/*",
-                    "User-Agent": "curl/8.6.0",
-                },
-                timeout=10,
-            )
+        r = ynab_session.get(
+            "https://api.youneedabudget.com/v1/user",
+            headers={
+                "Authorization": f"Bearer {ynab_api_key}",
+                "Accept": "*/*",
+                "User-Agent": "curl/8.6.0",
+            },
+            timeout=10,
+        )
         if r.status_code == 401:
             print(f"YNAB raw preflight 401. Body: {r.text}")
             return
@@ -1680,15 +1680,13 @@ def main():
         url = f"{BASE}/budgets/{budget_id}/accounts/{account_id}/transactions"
         params = {"since_date": since_date}
         out: set[str] = set()
-        with requests.Session() as s:
-            s.trust_env = False
-            r = s.get(url, headers=AUTH_HEADER, params=params, timeout=20)
-            r.raise_for_status()
-            data = r.json()
-            for t in data.get("data", {}).get("transactions", []):
-                imp = t.get("import_id")
-                if imp:
-                    out.add(imp)
+        r = ynab_session.get(url, headers=AUTH_HEADER, params=params, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        for t in data.get("data", {}).get("transactions", []):
+            imp = t.get("import_id")
+            if imp:
+                out.add(imp)
         return out
 
     def ynab_get_existing_by_import_id(budget_id: str, account_id: str, since_date: str) -> dict[str, dict]:
@@ -1702,52 +1700,46 @@ def main():
         url = f"{BASE}/budgets/{budget_id}/transactions"
         params = {"since_date": since_date}
         out: dict[str, dict] = {}
-        with requests.Session() as s:
-            s.trust_env = False
-            r = s.get(url, headers=AUTH_HEADER, params=params, timeout=30)
-            try:
-                r.raise_for_status()
-            except Exception:
-                print(f"YNAB existing lookup error: {r.status_code} {r.text}")
-                return out
-            data = r.json()
-            for t in data.get("data", {}).get("transactions", []):
-                imp = t.get("import_id")
-                if imp:
-                    out[imp] = t
+        r = ynab_session.get(url, headers=AUTH_HEADER, params=params, timeout=30)
+        try:
+            r.raise_for_status()
+        except Exception:
+            print(f"YNAB existing lookup error: {r.status_code} {r.text}")
+            return out
+        data = r.json()
+        for t in data.get("data", {}).get("transactions", []):
+            imp = t.get("import_id")
+            if imp:
+                out[imp] = t
         return out
 
     def ynab_get_account_balance(budget_id: str, account_id: str) -> Optional[Decimal]:
         """Get the cleared balance for a YNAB account in dollars."""
         url = f"{BASE}/budgets/{budget_id}/accounts/{account_id}"
-        with requests.Session() as s:
-            s.trust_env = False
-            r = s.get(url, headers=AUTH_HEADER, timeout=20)
-            try:
-                r.raise_for_status()
-            except Exception:
-                print(f"YNAB account lookup error: {r.status_code} {r.text}")
-                return None
-            data = r.json()
-            account = data.get("data", {}).get("account", {})
-            # YNAB returns balance in milliunits (1000 = $1.00)
-            cleared_balance_milli = account.get("cleared_balance", 0)
-            return Decimal(cleared_balance_milli) / 1000
+        r = ynab_session.get(url, headers=AUTH_HEADER, timeout=20)
+        try:
+            r.raise_for_status()
+        except Exception:
+            print(f"YNAB account lookup error: {r.status_code} {r.text}")
+            return None
+        data = r.json()
+        account = data.get("data", {}).get("account", {})
+        # YNAB returns balance in milliunits (1000 = $1.00)
+        cleared_balance_milli = account.get("cleared_balance", 0)
+        return Decimal(cleared_balance_milli) / 1000
     
     def ynab_get_uncleared_transactions(budget_id: str, account_id: str) -> list[dict]:
         """Get all uncleared transactions for an account."""
         url = f"{BASE}/budgets/{budget_id}/accounts/{account_id}/transactions"
-        with requests.Session() as s:
-            s.trust_env = False
-            r = s.get(url, headers=AUTH_HEADER, timeout=30)
-            try:
-                r.raise_for_status()
-            except Exception:
-                print(f"YNAB transactions lookup error: {r.status_code} {r.text}")
-                return []
-            data = r.json()
-            txns = data.get("data", {}).get("transactions", [])
-            return [t for t in txns if t.get("cleared") != "reconciled"]
+        r = ynab_session.get(url, headers=AUTH_HEADER, timeout=30)
+        try:
+            r.raise_for_status()
+        except Exception:
+            print(f"YNAB transactions lookup error: {r.status_code} {r.text}")
+            return []
+        data = r.json()
+        txns = data.get("data", {}).get("transactions", [])
+        return [t for t in txns if t.get("cleared") != "reconciled"]
     
     def ynab_reconcile_transactions(budget_id: str, txn_ids: list[str]) -> int:
         """Mark transactions as reconciled. Returns count of successfully reconciled."""
@@ -1755,13 +1747,11 @@ def main():
         for txn_id in txn_ids:
             url = f"{BASE}/budgets/{budget_id}/transactions/{txn_id}"
             payload = {"transaction": {"cleared": "reconciled"}}
-            with requests.Session() as s:
-                s.trust_env = False
-                r = s.put(url, headers=AUTH_HEADER, json=payload, timeout=20)
-                if r.status_code == 200:
-                    reconciled += 1
-                else:
-                    print(f"  Failed to reconcile {txn_id}: {r.status_code}")
+            r = ynab_session.put(url, headers=AUTH_HEADER, json=payload, timeout=20)
+            if r.status_code == 200:
+                reconciled += 1
+            else:
+                print(f"  Failed to reconcile {txn_id}: {r.status_code}")
         return reconciled
 
     def ynab_create_or_update_transactions(budget_id: str, account_id: str, txns: list[dict], since_date: Optional[str] = None) -> list[dict]:
@@ -1799,16 +1789,19 @@ def main():
         if not update_enabled:
             url = f"{BASE}/budgets/{budget_id}/transactions"
             body = {"transactions": safe_txns}
-            with requests.Session() as s:
-                s.trust_env = False
-                r = s.post(url, headers={**AUTH_HEADER, "Content-Type": "application/json"}, json=body, timeout=30)
-                try:
-                    r.raise_for_status()
-                except Exception:
-                    print(f"YNAB create_transaction error: {r.status_code} {r.text}")
-                    return []
-                data = r.json()
-                return data.get("data", {}).get("transactions", [])
+            r = ynab_session.post(
+                url,
+                headers={**AUTH_HEADER, "Content-Type": "application/json"},
+                json=body,
+                timeout=30,
+            )
+            try:
+                r.raise_for_status()
+            except Exception:
+                print(f"YNAB create_transaction error: {r.status_code} {r.text}")
+                return []
+            data = r.json()
+            return data.get("data", {}).get("transactions", [])
 
         # Determine since_date for lookup if not provided: use earliest date or env lookback window
         if not since_date:
@@ -1864,21 +1857,24 @@ def main():
 
         results: list[dict] = []
         # PATCH updates one-by-one to ensure proper YNAB handling
-        with requests.Session() as s:
-            s.trust_env = False
-            for tx_id, t in to_update:
-                url = f"{BASE}/budgets/{budget_id}/transactions/{tx_id}"
-                body = {"transaction": t}
-                r = s.patch(url, headers={**AUTH_HEADER, "Content-Type": "application/json"}, json=body, timeout=30)
-                try:
-                    r.raise_for_status()
-                except Exception:
-                    print(f"YNAB update_transaction error: {r.status_code} {r.text}")
-                    continue
-                data = r.json()
-                tx = data.get("data", {}).get("transaction")
-                if tx:
-                    results.append(tx)
+        for tx_id, t in to_update:
+            url = f"{BASE}/budgets/{budget_id}/transactions/{tx_id}"
+            body = {"transaction": t}
+            r = ynab_session.patch(
+                url,
+                headers={**AUTH_HEADER, "Content-Type": "application/json"},
+                json=body,
+                timeout=30,
+            )
+            try:
+                r.raise_for_status()
+            except Exception:
+                print(f"YNAB update_transaction error: {r.status_code} {r.text}")
+                continue
+            data = r.json()
+            tx = data.get("data", {}).get("transaction")
+            if tx:
+                results.append(tx)
         if to_update:
             print(f"YNAB update: updated {len(results)} transactions")
 
@@ -1886,22 +1882,25 @@ def main():
         if to_create:
             url = f"{BASE}/budgets/{budget_id}/transactions"
             body = {"transactions": to_create}
-            with requests.Session() as s:
-                s.trust_env = False
-                r = s.post(url, headers={**AUTH_HEADER, "Content-Type": "application/json"}, json=body, timeout=30)
-                try:
-                    r.raise_for_status()
-                except Exception:
-                    print(f"YNAB create_transaction error: {r.status_code} {r.text}")
-                    return results
-                data = r.json()
-                created = data.get("data", {}).get("transactions", []) or []
-                results.extend(created)
-                duplicates = (data.get("data", {}) or {}).get("duplicate_import_ids")
-                if duplicates:
-                    preview = ", ".join(list(duplicates)[:5])
-                    print(f"YNAB create: duplicate_import_ids={len(duplicates)} (showing up to 5): {preview}")
-                print(f"YNAB create: requested {len(to_create)}, created {len(created)} (status={r.status_code})")
+            r = ynab_session.post(
+                url,
+                headers={**AUTH_HEADER, "Content-Type": "application/json"},
+                json=body,
+                timeout=30,
+            )
+            try:
+                r.raise_for_status()
+            except Exception:
+                print(f"YNAB create_transaction error: {r.status_code} {r.text}")
+                return results
+            data = r.json()
+            created = data.get("data", {}).get("transactions", []) or []
+            results.extend(created)
+            duplicates = (data.get("data", {}) or {}).get("duplicate_import_ids")
+            if duplicates:
+                preview = ", ".join(list(duplicates)[:5])
+                print(f"YNAB create: duplicate_import_ids={len(duplicates)} (showing up to 5): {preview}")
+            print(f"YNAB create: requested {len(to_create)}, created {len(created)} (status={r.status_code})")
 
         return results
 
@@ -1920,22 +1919,25 @@ def main():
             "import_id": imp,
         }
         url = f"{BASE}/budgets/{budget_id}/transactions"
-        with requests.Session() as s:
-            s.trust_env = False
-            r = s.post(url, headers={**AUTH_HEADER, "Content-Type": "application/json"}, json={"transactions": [txn]}, timeout=30)
-            if r.status_code >= 400:
-                print(f"YNAB dummy create error: {r.status_code} {r.text}")
-                return
-            d = r.json().get("data", {})
-            created = d.get("transactions") or []
-            dups = d.get("duplicate_import_ids") or []
-            if created:
-                t = created[0]
-                print(f"YNAB dummy created: id={t.get('id')} date={t.get('date')} amount={t.get('amount')} memo={t.get('memo')}")
-            elif dups:
-                print(f"YNAB dummy duplicate import_id (not created): {imp}")
-            else:
-                print(f"YNAB dummy: no transaction returned (status={r.status_code}) body={r.text[:240]}")
+        r = ynab_session.post(
+            url,
+            headers={**AUTH_HEADER, "Content-Type": "application/json"},
+            json={"transactions": [txn]},
+            timeout=30,
+        )
+        if r.status_code >= 400:
+            print(f"YNAB dummy create error: {r.status_code} {r.text}")
+            return
+        d = r.json().get("data", {})
+        created = d.get("transactions") or []
+        dups = d.get("duplicate_import_ids") or []
+        if created:
+            t = created[0]
+            print(f"YNAB dummy created: id={t.get('id')} date={t.get('date')} amount={t.get('amount')} memo={t.get('memo')}")
+        elif dups:
+            print(f"YNAB dummy duplicate import_id (not created): {imp}")
+        else:
+            print(f"YNAB dummy: no transaction returned (status={r.status_code}) body={r.text[:240]}")
 
     # Removed Preflight 2 block that calls ynab.UserApi(api_client).get_user()
 
