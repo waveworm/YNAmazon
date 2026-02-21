@@ -604,10 +604,15 @@ def load_amazon_orders(lookback_days: int) -> List[dict]:
                         if price is None:
                             price = getattr(it, "item_price", 0)
                         dprice = _to_decimal_value(price) or Decimal("0")
+                        # dprice is the total for all units; divide by qty to get actual unit price
+                        if qty > 1:
+                            unit_price = (dprice / Decimal(qty)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                        else:
+                            unit_price = dprice
                         items.append({
                             "title": title,
                             "qty": qty,
-                            "unit_price": str(dprice),
+                            "unit_price": str(unit_price),
                         })
                         flat_items.append((title, dprice))
                         flat_item_refs.append(items[-1])
@@ -622,9 +627,15 @@ def load_amazon_orders(lookback_days: int) -> List[dict]:
                     delta = (items_total - order_total).copy_abs()
                     if delta >= Decimal("0.01"):
                         scaled_items = _renormalize_items_to_total(flat_items, abs(order_total))
-                        for ref, (_, scaled_price) in zip(flat_item_refs, scaled_items):
+                        for ref, (_, scaled_total) in zip(flat_item_refs, scaled_items):
                             ref["orig_unit_price"] = ref["unit_price"]
-                            ref["unit_price"] = str(scaled_price)
+                            # scaled_total is the total for all units; divide by qty to get unit price
+                            qty = int(ref.get("qty", 1))
+                            if qty > 1:
+                                scaled_unit = (scaled_total / Decimal(qty)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                            else:
+                                scaled_unit = scaled_total
+                            ref["unit_price"] = str(scaled_unit)
 
                 normalized.append({
                     "order_id": order_id,
@@ -1356,16 +1367,18 @@ def load_orders_from_gc_activity(lookback_days: int,
         order_date_from_api = None
         ship_date_from_api = None
         # Prefer structured per-item prices from the official parser, if available
+        # This path also extracts quantity to properly handle multi-unit items
+        api_items_with_qty: List[Tuple[str, Decimal, int]] = []  # (title, total_price, qty)
         try:
             o = orders_api.get_order(oid)
             order_date_from_api = getattr(o, "order_date", None) or None
-            api_items: List[Tuple[str, Decimal]] = []
             for s in getattr(o, "shipments", []) or []:
                 sd = getattr(s, "ship_date", None)
                 if sd and (ship_date_from_api is None or sd < ship_date_from_api):
                     ship_date_from_api = sd
                 for it in getattr(s, "items", []) or []:
                     title = getattr(it, "title", "") or "Item"
+                    qty = int(getattr(it, "quantity", 1) or 1)
                     price = getattr(it, "price", None)
                     if price is None:
                         price = getattr(it, "item_price", 0)
@@ -1374,9 +1387,12 @@ def load_orders_from_gc_activity(lookback_days: int,
                     except Exception:
                         dprice = Decimal("0")
                     if dprice != 0:
-                        api_items.append((title, dprice))
-            if api_items:
-                items = api_items
+                        # The API returns per-unit price, so multiply by qty to get total
+                        total_price = dprice * qty
+                        api_items_with_qty.append((title, total_price, qty))
+            if api_items_with_qty:
+                # Convert to items format for renormalization (title, total_price)
+                items = [(t, p) for t, p, q in api_items_with_qty]
         except Exception as e:
             if PARSER_DEBUG:
                 print(f"[gc] API item fetch failed for {oid}: {e}")
@@ -1395,11 +1411,22 @@ def load_orders_from_gc_activity(lookback_days: int,
                 orig = items[idx][1]
             except Exception:
                 orig = p_scaled
+            # Get quantity from api_items_with_qty if available
+            qty = 1
+            if api_items_with_qty and idx < len(api_items_with_qty):
+                qty = api_items_with_qty[idx][2]
+            # p_scaled is total for all units; divide by qty to get unit price
+            if qty > 1:
+                unit_price = (p_scaled / Decimal(qty)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+                orig_unit = (orig / Decimal(qty)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) if orig else unit_price
+            else:
+                unit_price = p_scaled
+                orig_unit = orig
             ship_items.append({
                 "title": t,
-                "qty": 1,
-                "unit_price": str(p_scaled),
-                "orig_unit_price": str(orig),
+                "qty": qty,
+                "unit_price": str(unit_price),
+                "orig_unit_price": str(orig_unit),
             })
 
         # Choose dates: prefer earliest ship date from API, else order date (API/HTML), else today

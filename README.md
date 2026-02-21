@@ -51,6 +51,19 @@ A program to annotate YNAB transactions with Amazon order info, supporting both 
 
 [CLI Instructions](/CLI_README.md)
 
+## Share with a Friend (Portable Source Bundle)
+
+To package this project so someone else can run it with minimal setup:
+
+1. Create a clean bundle (excludes `.env`, `.git`, caches, and local output):
+   ```bash
+   bash scripts/make_friend_bundle.sh
+   ```
+2. Send the generated archive from `output/friend-bundles/`.
+3. Ask them to follow [FRIEND_SETUP.md](./FRIEND_SETUP.md).
+
+This keeps secrets out of the archive while including everything needed to install and run using `uv`.
+
 ## How it works
 This program automates the process of annotating YNAB transactions with detailed Amazon order information. Here's how it works:
 
