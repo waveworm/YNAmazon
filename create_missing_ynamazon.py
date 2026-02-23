@@ -703,9 +703,43 @@ GC_ACTIVITY_URLS = [
 ]
 
 
+def _extract_payment_from_order_html(html: str) -> str:
+    """Try to extract payment method from order detail HTML.
+
+    Reads the PMTS payment instrument widget. The list can contain multiple entries
+    (e.g. credit card on file AND gift card balance). Priority:
+    - If "Amazon gift card balance" is listed → gift card order (return that string)
+    - If only a credit card is listed → return "Mastercard ****XXXX" / "Visa ****XXXX" etc.
+    - Fallback: "Amazon gift card balance"
+    """
+    idx = html.find("pmts-payments-instrument-list")
+    if idx < 0:
+        return "Amazon gift card balance"
+
+    # Grab enough HTML to cover all list items (typically <500 chars)
+    section = html[idx : idx + 2000]
+
+    # Gift card beats credit card: if GC balance is in the list, treat as GC order
+    if "Amazon gift card balance" in section:
+        return "Amazon gift card balance"
+
+    # No gift card — look for a credit card entry
+    card_match = re.search(
+        r'alt="([^"]+)".*?ending in (\d{4})',
+        section,
+        re.DOTALL,
+    )
+    if card_match:
+        card_type = card_match.group(1)
+        last4 = card_match.group(2)
+        return f"{card_type} ****{last4}"
+
+    return "Amazon gift card balance"
+
+
 def parse_amazon_gc_balance(html: str) -> Optional[Decimal]:
     """Parse Amazon gift card balance from the GC activity page HTML.
-    
+
     Returns the balance as a Decimal, or None if not found.
     """
     # Look for the balance value in the gc-ui-balance element
@@ -1441,7 +1475,7 @@ def load_orders_from_gc_activity(lookback_days: int,
             "order_id": oid,
             "order_date": _od,
             "shipments": shipments if shipments[0]["items"] else [{"ship_date": _od, "items": []}],
-            "payment_method": "Amazon gift card balance",
+            "payment_method": _extract_payment_from_order_html(html),
         })
     print(f"[source] GC activity → parsed {len(parsed_orders)} orders with itemized splits (where possible)")
     return parsed_orders
