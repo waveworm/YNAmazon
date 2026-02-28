@@ -4,7 +4,7 @@ from loguru import logger
 import re
 from typing import Optional
 from openai import OpenAI
-from openai import AuthenticationError, RateLimitError, APIError
+from openai import AuthenticationError, RateLimitError, APIError, APIConnectionError
 from ynamazon.settings import settings
 from ynamazon.prompts import (
     AMAZON_SUMMARY_SYSTEM_PROMPT, 
@@ -42,12 +42,18 @@ def generate_ai_summary(
         OpenAIEmptyResponseError: If OpenAI returns an empty or invalid response
         Exception: For other OpenAI API errors
     """
-    # Check if OpenAI key is available
-    if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value():
-        raise MissingOpenAIAPIKey("OpenAI API key not found")
-    
-    # Create client
-    client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
+    # Create client — Ollama (local) or OpenAI (cloud)
+    if settings.use_ollama:
+        client = OpenAI(
+            base_url=settings.ollama_base_url,
+            api_key="ollama",  # required by the client but ignored by Ollama
+        )
+        model = settings.ollama_model
+    else:
+        if settings.openai_api_key is None or not settings.openai_api_key.get_secret_value():
+            raise MissingOpenAIAPIKey("OpenAI API key not found")
+        client = OpenAI(api_key=settings.openai_api_key.get_secret_value())
+        model = "gpt-4o-mini"
     
     # Prepare content for summarization
     partial_order_note = ""
@@ -66,7 +72,7 @@ def generate_ai_summary(
     try:
         # Get the response from OpenAI
         response = client.chat.completions.create(
-            model="gpt-4o-mini",
+            model=model,
             messages=[
                 {"role": "system", "content": AMAZON_SUMMARY_SYSTEM_PROMPT},
                 {"role": "user", "content": full_prompt}
@@ -74,14 +80,18 @@ def generate_ai_summary(
         )
     except AuthenticationError as e:
         raise InvalidOpenAIAPIKey("Invalid OpenAI API key") from e
+    except APIConnectionError as e:
+        provider = "Ollama" if settings.use_ollama else "OpenAI"
+        logger.error(f"Could not connect to {provider} (is it running at {settings.ollama_base_url if settings.use_ollama else 'api.openai.com'}?): {e}")
+        return None
     except RateLimitError as e:
         logger.error(f"OpenAI API rate limit exceeded: {e}")
         return None
     except APIError as e:
-        logger.error(f"OpenAI API error: {e}")
+        logger.error(f"AI API error: {e}")
         return None
     except Exception as e:
-        logger.error(f"Unexpected error using OpenAI API: {e}")
+        logger.error(f"Unexpected error using AI API: {e}")
         return None
         
     # Check for empty response

@@ -50,11 +50,16 @@ class Settings(BaseSettings):
     use_ai_summarization: bool = False
     suppress_partial_order_warning: bool = False
 
+    # Ollama (local AI) settings — alternative to OpenAI
+    use_ollama: bool = False
+    ollama_base_url: str = "http://localhost:11434/v1"
+    ollama_model: str = "llama3.2"
+
     @model_validator(mode="after")
     def validate_settings(self) -> "Settings":
-        """Validate that OpenAI API key is present when AI summarization is enabled."""
-        if self.use_ai_summarization and self.openai_api_key is None:
-            raise MissingOpenAIAPIKey("OpenAI API key is required when AI summarization is enabled")
+        """Validate that AI provider settings are present when AI summarization is enabled."""
+        if self.use_ai_summarization and not self.use_ollama and self.openai_api_key is None:
+            raise MissingOpenAIAPIKey("OpenAI API key is required when AI summarization is enabled (or set USE_OLLAMA=true)")
         return self
 
 
